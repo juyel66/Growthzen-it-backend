@@ -190,6 +190,16 @@ export const forgotPassword = async (payload: EmailOnlyInput): Promise<void> => 
     to: user.email,
     subject: "Your password reset code",
     text: `Your password reset code is ${otpCode}. It will expire in 10 minutes.`,
+    html: `
+      <div style="font-family: Arial, sans-serif; background: #f8fafc; padding: 24px; color: #0f172a;">
+        <div style="max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 16px; padding: 32px; border: 1px solid #e2e8f0;">
+          <h2 style="margin: 0 0 16px; font-size: 24px;">Reset your password</h2>
+          <p style="margin: 0 0 24px; line-height: 1.6;">Use the OTP below to verify your password reset request. The code expires in 10 minutes.</p>
+          <div style="font-size: 32px; font-weight: 700; letter-spacing: 8px; text-align: center; padding: 20px; background: #f1f5f9; border-radius: 12px; color: #111827;">${otpCode}</div>
+          <p style="margin: 24px 0 0; font-size: 14px; color: #64748b;">If you did not request this reset, you can ignore this email.</p>
+        </div>
+      </div>
+    `,
   });
 };
 
