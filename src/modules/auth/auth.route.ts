@@ -10,6 +10,8 @@ import {
   resetPasswordHandler,
   verifyOtpHandler,
 } from "./auth.controller";
+import validateRequest from "../../middlewares/validateRequest";
+import { authenticate } from "../../middlewares/auth";
 import {
   changePasswordValidationSchema,
   emailOnlyValidationSchema,
@@ -19,8 +21,6 @@ import {
   resetPasswordValidationSchema,
   verifyOtpValidationSchema,
 } from "./auth.validation";
-import validateRequest from "../../middlewares/validateRequest";
-import { authenticate } from "../../middlewares/auth";
 
 const router = Router();
 
