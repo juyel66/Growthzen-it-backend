@@ -4,6 +4,7 @@ interface SendEmailOptions {
   to: string;
   subject: string;
   text: string;
+  html?: string;
 }
 
 const sendEmail = async (options: SendEmailOptions): Promise<void> => {
@@ -14,28 +15,31 @@ const sendEmail = async (options: SendEmailOptions): Promise<void> => {
   const emailPort = Number(process.env.EMAIL_PORT) || 587;
 
   if (!emailUser || !emailPass || !emailFrom) {
-    console.info(`[DEV EMAIL] To: ${options.to}`);
-    console.info(`[DEV EMAIL] Subject: ${options.subject}`);
-    console.info(`[DEV EMAIL] Message: ${options.text}`);
-    return;
+    throw new Error("Email configuration is incomplete");
   }
 
-  const transporter = nodemailer.createTransport({
-    host: emailHost,
-    port: emailPort,
-    secure: emailPort === 465,
-    auth: {
-      user: emailUser,
-      pass: emailPass,
-    },
-  });
+  try {
+    const transporter = nodemailer.createTransport({
+      host: emailHost,
+      port: emailPort,
+      secure: emailPort === 465,
+      auth: {
+        user: emailUser,
+        pass: emailPass,
+      },
+    });
 
-  await transporter.sendMail({
-    from: emailFrom,
-    to: options.to,
-    subject: options.subject,
-    text: options.text,
-  });
+    await transporter.sendMail({
+      from: emailFrom,
+      to: options.to,
+      subject: options.subject,
+      text: options.text,
+      html: options.html,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to send email";
+    throw new Error(message);
+  }
 };
 
 export default sendEmail;
