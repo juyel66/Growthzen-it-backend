@@ -10,6 +10,14 @@ export const errorHandler = (error: unknown, _req: Request, res: Response, _next
     });
   }
 
+  if (error instanceof Error && (error.name === "TokenExpiredError" || error.name === "JsonWebTokenError")) {
+    return res.status(401).json({
+      success: false,
+      message: error.name === "TokenExpiredError" ? "Access token expired. Use refresh-token endpoint." : "Invalid or expired token",
+      error: null,
+    });
+  }
+
   const message = error instanceof Error ? error.message : "Something went wrong";
 
   return res.status(500).json({
