@@ -36,11 +36,14 @@ export const authenticate = (req: Request, _res: Response, next: NextFunction): 
 };
 
 export const authorizeRoles = (...allowedRoles: Role[]) => {
+  // Normalize allowed roles to strings for robust runtime comparison
+  const allowed = allowedRoles.map((r) => String(r).toUpperCase().trim());
+
   return (req: Request, _res: Response, next: NextFunction): void => {
     try {
       const userRole = req.user?.role;
 
-      if (!userRole || !allowedRoles.includes(userRole)) {
+      if (!userRole || !allowed.includes(String(userRole).toUpperCase().trim())) {
         throw new AppError(403, "You do not have permission to access this resource");
       }
 
@@ -49,4 +52,30 @@ export const authorizeRoles = (...allowedRoles: Role[]) => {
       next(error);
     }
   };
+};
+
+export const optionalAuthenticate = (req: Request, _res: Response, next: NextFunction): void => {
+  const authorizationHeader = req.headers.authorization;
+
+  if (!authorizationHeader) {
+    next();
+    return;
+  }
+
+  try {
+    const token = getTokenFromHeader(authorizationHeader);
+    const decoded = verifyAccessToken(token);
+
+    req.user = {
+      id: decoded.id,
+      name: decoded.name,
+      email: decoded.email,
+      role: decoded.role,
+    };
+
+    next();
+  } catch (error) {
+    // Public routes should still work when an access token is missing, invalid, or expired.
+    next();
+  }
 };
