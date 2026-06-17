@@ -34,4 +34,4 @@ router.post("/reset-password", validateRequest(resetPasswordValidationSchema), r
 router.post("/refresh-token", validateRequest(refreshTokenValidationSchema), refreshTokenHandler);
 router.patch("/change-password", authenticate, validateRequest(changePasswordValidationSchema), changePasswordHandler);
 
-export default router;
+export default router; 
