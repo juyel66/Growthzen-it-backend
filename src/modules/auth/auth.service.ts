@@ -1,4 +1,3 @@
-import bcrypt from "bcryptjs";
 import type { User } from "../../../generated/prisma/client";
 import prismaClient from "../../config/prisma";
 import { compareValue, hashValue } from "../../utils/password";
@@ -6,6 +5,7 @@ import AppError from "../../utils/AppError";
 import { generateOtpCode, getOtpExpiryDate } from "../../utils/otp";
 import sendEmail from "../../helpers/email";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../utils/jwt";
+import { SUPER_ADMIN_EMAIL } from "../../constants/auth";
 import type {
   AuthResult,
   ChangePasswordInput,
@@ -51,20 +51,11 @@ const buildTokenPayload = (user: Pick<User, "id" | "name" | "email" | "role">): 
   role: user.role,
 });
 
-const createTokenPair = (user: Pick<User, "id" | "name" | "email" | "role">): AuthResult => {
+const createTokenPair = (user: User): AuthResult => {
   const payload = buildTokenPayload(user);
 
   return {
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      isVerified: true,
-      isActive: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    },
+    user: sanitizeUser(user),
     accessToken: signAccessToken(payload),
     refreshToken: signRefreshToken(payload),
   };
@@ -86,13 +77,15 @@ export const register = async (payload: RegisterInput): Promise<AuthResult> => {
   }
 
   const hashedPassword = await hashValue(payload.password);
+  const assignedRole: User["role"] =
+    payload.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() ? "SUPER_ADMIN" : "CUSTOMER";
 
   const createdUser = await prismaClient.user.create({
     data: {
       name: payload.name,
       email: payload.email,
       password: hashedPassword,
-      role: "CUSTOMER",
+      role: assignedRole,
       isVerified: false,
     },
     select: userSelect,
@@ -121,8 +114,8 @@ export const login = async (payload: LoginInput): Promise<AuthResult> => {
     throw new AppError(401, "Invalid email or password");
   }
 
-  const tokenPair = createTokenPair(user as Pick<User, "id" | "name" | "email" | "role">);
-  const refreshTokenHash = await bcrypt.hash(tokenPair.refreshToken ?? "", 10);
+  const tokenPair = createTokenPair(user as User);
+  const refreshTokenHash = await hashValue(tokenPair.refreshToken ?? "");
 
   await prismaClient.user.update({
     where: { id: user.id },
@@ -134,6 +127,17 @@ export const login = async (payload: LoginInput): Promise<AuthResult> => {
     accessToken: tokenPair.accessToken,
     refreshToken: tokenPair.refreshToken,
   };
+};
+
+export const syncSuperAdminAccount = async (): Promise<void> => {
+  await prismaClient.user.updateMany({
+    where: {
+      email: SUPER_ADMIN_EMAIL,
+    },
+    data: {
+      role: "SUPER_ADMIN",
+    },
+  });
 };
 
 export const getMyProfile = async (userId: string): Promise<SafeUser> => {
@@ -267,14 +271,14 @@ export const refreshToken = async (token: string): Promise<AuthResult> => {
     throw new AppError(401, "Refresh token is not valid");
   }
 
-  const isRefreshTokenValid = await bcrypt.compare(token, user.refreshTokenHash);
+  const isRefreshTokenValid = await compareValue(token, user.refreshTokenHash);
 
   if (!isRefreshTokenValid) {
     throw new AppError(401, "Refresh token is not valid");
   }
 
-  const tokenPair = createTokenPair(user as Pick<User, "id" | "name" | "email" | "role">);
-  const refreshTokenHash = await bcrypt.hash(tokenPair.refreshToken ?? "", 10);
+  const tokenPair = createTokenPair(user as User);
+  const refreshTokenHash = await hashValue(tokenPair.refreshToken ?? "");
 
   await prismaClient.user.update({
     where: { id: user.id },
