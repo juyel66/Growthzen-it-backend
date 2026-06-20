@@ -7,5 +7,5 @@ export const generateOtpCode = (): string => {
 };
 
 export const getOtpExpiryDate = (): Date => {
-  return new Date(Date.now() + OTP_EXPIRES_MINUTES * 60 * 1000);
+  return new Date(Date.now() + OTP_EXPIRES_MINUTES * 60 * 1000);    
 };
