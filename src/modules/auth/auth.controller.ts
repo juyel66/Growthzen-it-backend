@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+// eslint-disable-next-line import/no-cycle
 import AppError from "../../utils/AppError";
 import catchAsync from "../../utils/catchAsync";
 import sendResponse from "../../utils/sendResponse";
