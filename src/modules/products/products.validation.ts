@@ -83,6 +83,7 @@ const productBaseSchema = z.object({
   resellerSellPrice: parseNumber("Reseller sell price must be greater than or equal to 0"),
   couponCode: z.string().trim().min(1).optional().nullable(),
   couponDiscountPercentage: parseOptionalNumber(z.number().int().min(0).max(100)),
+  productCode: z.string().min(1, "Product code is required"),
   status: productStatusSchema.optional(),
   thumbnailImage: z.string().min(1, "Thumbnail image is required"),
   productImages: parseStringArray(10, "You can upload up to 10 product images"),
