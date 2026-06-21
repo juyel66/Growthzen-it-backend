@@ -1,6 +1,7 @@
 import type { ProductStatus, Role } from "../../../generated/prisma/client";
 
 export interface ProductCreateInput {
+  productCode: string;
   title: string;
   description: string;
   category: string;
@@ -27,6 +28,7 @@ export interface PublicProductView {
   discountedCustomerPrice: number;
   couponCode?: string | null;
   thumbnailImage: string;
+  productCode: string; 
   productImages: string[];
   productVideos: string[];
   status: ProductStatus;
@@ -34,27 +36,43 @@ export interface PublicProductView {
   createdAt: Date;
   updatedAt: Date;
 }
+
+
 
 export interface ResellerProductView {
   id: string;
   title: string;
   description: string;
   category: string;
+  productCode: string;
+
+  customerSellPrice: number;
   resellerSellPrice: number;
+
   couponCode?: string | null;
+
   thumbnailImage: string;
   productImages: string[];
   productVideos: string[];
+
   status: ProductStatus;
   isFeatured: boolean;
+
   createdAt: Date;
   updatedAt: Date;
 }
+
+
 
 export interface AdminProductView {
   id: string;
   title: string;
   description: string;
+  productCode: string;
+
+  createdByName: string | null;
+createdByEmail: string | null;
+
   category: string;
   originalPrice: number;
   customerSellPrice: number;
