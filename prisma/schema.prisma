@@ -49,6 +49,7 @@ model Product {
   customerSellPrice      Float
   resellerSellPrice      Float
   couponCode             String?
+  productCode            String @unique
   couponDiscountPercentage Int?
   status                 ProductStatus  @default(AVAILABLE)
   thumbnailImage         String
