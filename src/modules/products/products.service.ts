@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import type { Prisma, Product, ProductStatus, Role } from "../../../generated/prisma/client";
+import type { Prisma, Role } from "../../../generated/prisma/client";
 import prismaClient from "../../config/prisma";
 import AppError from "../../utils/AppError";
 import type {
@@ -12,25 +12,23 @@ import type {
   ResellerProductView,
 } from "./products.interface";
 
-const productSelect = {
-  id: true,
-  title: true,
-  description: true,
-  category: true,
-  originalPrice: true,
-  customerSellPrice: true,
-  resellerSellPrice: true,
-  couponCode: true,
-  couponDiscountPercentage: true,
-  status: true,
-  thumbnailImage: true,
-  productImages: true,
-  productVideos: true,
-  isFeatured: true,
-  createdById: true,
-  createdAt: true,
-  updatedAt: true,
-} as const;
+const productInclude: Prisma.ProductInclude = {
+  createdBy: {
+    select: {
+      name: true,
+      email: true,
+    },
+  },
+};
+
+
+
+type ProductWithCreator = Prisma.ProductGetPayload<{
+  include: typeof productInclude;
+}>;
+
+
+
 
 const calculateDiscountedCustomerPrice = (customerSellPrice: number, couponDiscountPercentage?: number | null): number => {
   if (!couponDiscountPercentage) {
@@ -40,9 +38,10 @@ const calculateDiscountedCustomerPrice = (customerSellPrice: number, couponDisco
   return Number((customerSellPrice - (customerSellPrice * couponDiscountPercentage) / 100).toFixed(2));
 };
 
-const mapPublicProduct = (product: Product): PublicProductView => ({
+const mapPublicProduct = (product: ProductWithCreator): PublicProductView => ({
   id: product.id,
   title: product.title,
+  productCode: product.productCode,
   description: product.description,
   category: product.category,
   customerSellPrice: product.customerSellPrice,
@@ -57,25 +56,39 @@ const mapPublicProduct = (product: Product): PublicProductView => ({
   updatedAt: product.updatedAt,
 });
 
-const mapResellerProduct = (product: Product): ResellerProductView => ({
+
+
+const mapResellerProduct = (product: ProductWithCreator): ResellerProductView => ({
   id: product.id,
   title: product.title,
   description: product.description,
   category: product.category,
+  productCode: product.productCode,
+
+  customerSellPrice: product.customerSellPrice,
   resellerSellPrice: product.resellerSellPrice,
+
   couponCode: product.couponCode,
+
   thumbnailImage: product.thumbnailImage,
   productImages: product.productImages,
   productVideos: product.productVideos,
+
   status: product.status,
   isFeatured: product.isFeatured,
+
   createdAt: product.createdAt,
   updatedAt: product.updatedAt,
 });
 
-const mapAdminProduct = (product: Product): AdminProductView => ({
+
+
+const mapAdminProduct = (product: ProductWithCreator): AdminProductView => ({
+
   id: product.id,
   title: product.title,
+  productCode: product.productCode,
+
   description: product.description,
   category: product.category,
   originalPrice: product.originalPrice,
@@ -89,11 +102,13 @@ const mapAdminProduct = (product: Product): AdminProductView => ({
   productVideos: product.productVideos,
   isFeatured: product.isFeatured,
   createdById: product.createdById,
+  createdByName: product.createdBy?.name ?? null,
+  createdByEmail: product.createdBy?.email ?? null,
   createdAt: product.createdAt,
   updatedAt: product.updatedAt,
 });
 
-const mapProductByRole = (product: Product, viewerRole?: Role) => {
+const mapProductByRole = (product: ProductWithCreator, viewerRole?: Role) => {
   if (!viewerRole) {
     return mapPublicProduct(product);
   }
@@ -122,33 +137,34 @@ export const createProduct = async (payload: ProductCreateInput, createdById: st
       couponDiscountPercentage: payload.couponDiscountPercentage ?? null,
       productVideos: payload.productVideos ?? [],
       isFeatured: payload.isFeatured ?? false,
+
     },
-    select: productSelect,
+    include: productInclude,
   });
 
-  return mapAdminProduct(createdProduct as Product);
+return mapAdminProduct(createdProduct);
 };
 
 export const getProducts = async (viewerRole?: Role) => {
   const products = await prismaClient.product.findMany({
     orderBy: { createdAt: "desc" },
-    select: productSelect,
+    include: productInclude,
   });
 
-  return products.map((product) => mapProductByRole(product as Product, viewerRole));
+  return products.map((product) => mapProductByRole(product, viewerRole));
 };
 
 export const getProductById = async (id: string, viewerRole?: Role) => {
   const product = await prismaClient.product.findUnique({
     where: { id },
-    select: productSelect,
+    include: productInclude,
   });
 
   if (!product) {
     throw new AppError(404, "Product not found");
   }
 
-  return mapProductByRole(product as Product, viewerRole);
+  return mapProductByRole(product, viewerRole);
 };
 
 export const updateProduct = async (id: string, payload: ProductUpdateInput): Promise<AdminProductView> => {
@@ -178,7 +194,7 @@ export const updateProduct = async (id: string, payload: ProductUpdateInput): Pr
   const updatedProduct = await prismaClient.product.update({
     where: { id },
     data: nextData,
-    select: productSelect,
+    include: productInclude,
   });
 
   const pathsToDelete: string[] = [];
@@ -196,8 +212,7 @@ export const updateProduct = async (id: string, payload: ProductUpdateInput): Pr
   }
 
   await deleteLocalFiles(pathsToDelete);
-
-  return mapAdminProduct(updatedProduct as Product);
+return mapAdminProduct(updatedProduct);
 };
 
 export const deleteProduct = async (id: string): Promise<void> => {
