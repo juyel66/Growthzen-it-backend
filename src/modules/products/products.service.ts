@@ -12,20 +12,23 @@ import type {
   ResellerProductView,
 } from "./products.interface";
 
-const productInclude: Prisma.ProductInclude = {
+const productInclude = {
   createdBy: {
     select: {
       name: true,
       email: true,
     },
   },
-};
+} satisfies Prisma.ProductInclude;
 
 
 
 type ProductWithCreator = Prisma.ProductGetPayload<{
   include: typeof productInclude;
 }>;
+
+
+
 
 
 
@@ -38,9 +41,44 @@ const calculateDiscountedCustomerPrice = (customerSellPrice: number, couponDisco
   return Number((customerSellPrice - (customerSellPrice * couponDiscountPercentage) / 100).toFixed(2));
 };
 
+const createSlugBase = (title: string): string => {
+  const slug = title
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return slug || "product";
+};
+
+const buildUniqueSlug = async (title: string, excludeProductId?: string): Promise<string> => {
+  const baseSlug = createSlugBase(title);
+
+  for (let suffix = 0; ; suffix += 1) {
+    const candidateSlug = suffix === 0 ? baseSlug : `${baseSlug}-${suffix + 1}`;
+    const existingProduct = await prismaClient.product.findFirst({
+      where: {
+        slug: candidateSlug,
+        ...(excludeProductId ? { id: { not: excludeProductId } } : {}),
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!existingProduct) {
+      return candidateSlug;
+    }
+  }
+};
+
 const mapPublicProduct = (product: ProductWithCreator): PublicProductView => ({
   id: product.id,
   title: product.title,
+
+  hasSize: product.hasSize,
+sizes: product.sizes,
+  slug: product.slug,
   productCode: product.productCode,
   description: product.description,
   category: product.category,
@@ -61,6 +99,10 @@ const mapPublicProduct = (product: ProductWithCreator): PublicProductView => ({
 const mapResellerProduct = (product: ProductWithCreator): ResellerProductView => ({
   id: product.id,
   title: product.title,
+
+  hasSize: product.hasSize,
+sizes: product.sizes,
+  slug: product.slug,
   description: product.description,
   category: product.category,
   productCode: product.productCode,
@@ -87,7 +129,10 @@ const mapAdminProduct = (product: ProductWithCreator): AdminProductView => ({
 
   id: product.id,
   title: product.title,
+  slug: product.slug,
   productCode: product.productCode,
+  hasSize: product.hasSize,
+sizes: product.sizes,
 
   description: product.description,
   category: product.category,
@@ -128,9 +173,15 @@ const mapProductByRole = (product: ProductWithCreator, viewerRole?: Role) => {
 };
 
 export const createProduct = async (payload: ProductCreateInput, createdById: string): Promise<AdminProductView> => {
+  const slug = await buildUniqueSlug(payload.title);
+
   const createdProduct = await prismaClient.product.create({
     data: {
       ...payload,
+     
+  hasSize: payload.hasSize ?? false,
+  sizes: payload.sizes ?? [],
+      slug,
       createdById,
       status: payload.status ?? "AVAILABLE",
       couponCode: payload.couponCode ?? null,
@@ -173,10 +224,14 @@ export const updateProduct = async (id: string, payload: ProductUpdateInput): Pr
     select: {
       id: true,
       thumbnailImage: true,
+       hasSize: payload.hasSize ?? undefined,
+  sizes: payload.sizes?? undefined,
       productImages: true,
       productVideos: true,
     },
   });
+
+  
 
   if (!existingProduct) {
     throw new AppError(404, "Product not found");
@@ -184,6 +239,7 @@ export const updateProduct = async (id: string, payload: ProductUpdateInput): Pr
 
   const nextData: Prisma.ProductUpdateInput = {
     ...payload,
+    ...(payload.title ? { slug: await buildUniqueSlug(payload.title, id) } : {}),
     couponCode: payload.couponCode ?? undefined,
     couponDiscountPercentage: payload.couponDiscountPercentage ?? undefined,
     productVideos: payload.productVideos ?? undefined,
@@ -218,11 +274,14 @@ return mapAdminProduct(updatedProduct);
 export const deleteProduct = async (id: string): Promise<void> => {
   const existingProduct = await prismaClient.product.findUnique({
     where: { id },
+
     select: {
       id: true,
       thumbnailImage: true,
       productImages: true,
       productVideos: true,
+      hasSize: true,
+  sizes: true,
     },
   });
 

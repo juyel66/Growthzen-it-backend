@@ -77,6 +77,12 @@ const parseStringArray = (maxItems: number, message: string) =>
 const productBaseSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().min(1, "Description is required"),
+  hasSize: parseBoolean.optional(),
+
+sizes: parseStringArray(
+  20,
+  "Maximum 20 sizes allowed"
+).optional(),
   category: z.string().min(1, "Category is required"),
   originalPrice: parseNumber("Original price must be greater than or equal to 0"),
   customerSellPrice: parseNumber("Customer sell price must be greater than or equal to 0"),

@@ -1,6 +1,8 @@
 import type { ProductStatus, Role } from "../../../generated/prisma/client";
 
 export interface ProductCreateInput {
+  hasSize?: boolean;
+sizes?: string[];
   productCode: string;
   title: string;
   description: string;
@@ -22,6 +24,9 @@ export interface ProductUpdateInput extends Partial<ProductCreateInput> {}
 export interface PublicProductView {
   id: string;
   title: string;
+  slug: string;
+  hasSize: boolean;
+sizes: string[];
   description: string;
   category: string;
   customerSellPrice: number;
@@ -42,9 +47,12 @@ export interface PublicProductView {
 export interface ResellerProductView {
   id: string;
   title: string;
+  slug: string;
   description: string;
   category: string;
   productCode: string;
+  hasSize: boolean;
+sizes: string[];
 
   customerSellPrice: number;
   resellerSellPrice: number;
@@ -67,8 +75,11 @@ export interface ResellerProductView {
 export interface AdminProductView {
   id: string;
   title: string;
+  slug: string;
   description: string;
   productCode: string;
+  hasSize: boolean;
+sizes: string[];
 
   createdByName: string | null;
 createdByEmail: string | null;
