@@ -22,8 +22,6 @@ const parseOptionalBoolean = z.preprocess((value) => {
     }
   }
 
-
-
   return value;
 }, z.boolean().optional());
 
