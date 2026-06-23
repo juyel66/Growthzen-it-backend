@@ -224,8 +224,8 @@ export const updateProduct = async (id: string, payload: ProductUpdateInput): Pr
     select: {
       id: true,
       thumbnailImage: true,
-       hasSize: payload.hasSize ?? undefined,
-  sizes: payload.sizes?? undefined,
+      hasSize: true,
+      sizes: true,
       productImages: true,
       productVideos: true,
     },
