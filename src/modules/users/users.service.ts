@@ -1,4 +1,4 @@
-import type { Role, User } from "../../../generated/prisma/client";
+import type { Role, User } from "@prisma/client";
 import prismaClient from "../../config/prisma";
 import AppError from "../../utils/AppError";
 import type { UpdateUserRoleInput, UserListItem } from "./users.interface";

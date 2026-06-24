@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import type { Prisma, Role } from "../../../generated/prisma/client";
+import type { Prisma, Role } from "@prisma/client";
 import prismaClient from "../../config/prisma";
 import AppError from "../../utils/AppError";
 import type {

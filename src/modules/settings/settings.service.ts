@@ -1,4 +1,4 @@
-import type { Prisma } from "../../../generated/prisma/client";
+import type { Prisma } from "@prisma/client";
 import prismaClient from "../../config/prisma";
 import type { SettingsView, UpdateSettingsInput } from "./settings.interface";
 

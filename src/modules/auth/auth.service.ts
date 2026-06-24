@@ -1,4 +1,4 @@
-import type { User } from "../../../generated/prisma/client";
+import type { User } from "@prisma/client";
 import prismaClient from "../../config/prisma";
 import { compareValue, hashValue } from "../../utils/password";
 import AppError from "../../utils/AppError";

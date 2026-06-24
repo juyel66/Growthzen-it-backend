@@ -1,4 +1,4 @@
-import type { ProductStatus, Role } from "../../../generated/prisma/client";
+import type { ProductStatus, Role } from "@prisma/client";
 
 export interface ProductCreateInput {
   hasSize?: boolean;

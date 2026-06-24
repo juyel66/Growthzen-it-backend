@@ -1,4 +1,4 @@
-import type { DeliveryArea, OrderStatus, Prisma, Role } from "../../../generated/prisma/client";
+import type { DeliveryArea, OrderStatus, Prisma, Role } from "@prisma/client";
 import prismaClient from "../../config/prisma";
 import AppError from "../../utils/AppError";
 import sendEmail from "../../helpers/email";

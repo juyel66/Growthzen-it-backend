@@ -1,4 +1,4 @@
-import type { DeliveryArea, OrderStatus, Role } from "../../../generated/prisma/client";
+import type { DeliveryArea, OrderStatus, Role } from "@prisma/client";
 
 export interface OrderProductInput {
   productId: string;
