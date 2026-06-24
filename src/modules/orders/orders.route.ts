@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authenticate, authorizeRoles } from "../../middlewares/auth";
+import { authenticate, authorizeRoles, optionalAuthenticate } from "../../middlewares/auth";
 import validateRequest from "../../middlewares/validateRequest";
 import {
   createOrderHandler,
@@ -12,7 +12,7 @@ import { createOrderValidationSchema, orderStatusUpdateValidationSchema } from "
 
 const router = Router();
 
-router.post("/", authenticate, authorizeRoles("CUSTOMER", "RESELLER"), validateRequest(createOrderValidationSchema), createOrderHandler);
+router.post("/", optionalAuthenticate, validateRequest(createOrderValidationSchema), createOrderHandler);
 router.get("/my-orders", authenticate, authorizeRoles("CUSTOMER", "RESELLER", "ADMIN", "SUPER_ADMIN"), getMyOrdersHandler);
 router.get("/", authenticate, authorizeRoles("ADMIN", "SUPER_ADMIN"), getOrdersHandler);
 router.get("/:id", authenticate, getOrderByIdHandler);
