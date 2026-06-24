@@ -6,7 +6,13 @@ import path from "path";
 import apiRoutes from "./routes";
 import { errorHandler } from "./middlewares/errorHandler";
 
+import swaggerUi from "swagger-ui-express";
+import { swaggerSpec } from "./config/swagger";
+
+
 const app: Express = express();
+
+
 
 app.use(cors());
 app.use(helmet());
@@ -18,6 +24,12 @@ app.use("/uploads", express.static(path.resolve(process.cwd(), "uploads")));
 app.get("/", (_req, res) => {
   res.json({ message: "E-commerce backend is running" });
 });
+
+app.use(
+  "/api-docs",
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerSpec)
+);
 
 app.use("/api/v1", apiRoutes);
 app.use(errorHandler);
