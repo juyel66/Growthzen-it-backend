@@ -23,6 +23,7 @@ export interface CreateOrderRequestUser {
 
 export interface UpdateOrderStatusInput {
   status: Exclude<OrderStatus, "PENDING">;
+  adminNote?: string | null;
 }
 
 export interface OrderItemView {
@@ -37,9 +38,12 @@ export interface OrderItemView {
 
 export interface OrderView {
   id: string;
+  orderCode: string;
   userId: string | null;
   userEmail: string | null;
+  email: string | null;
   orderedByRole: Role;
+  orderRole: Role;
   customerName: string;
   customerPhone: string;
   address: string;
@@ -53,6 +57,10 @@ export interface OrderView {
   items: OrderItemView[];
   createdAt: Date;
   updatedAt: Date;
+  confirmedAt: Date | null;
+  cancelledAt: Date | null;
+  deliveredAt: Date | null;
+  adminNote: string | null;
 }
 
 export interface OrderListMeta {
