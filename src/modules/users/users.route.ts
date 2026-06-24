@@ -10,6 +10,32 @@ router.use(authenticate, authorizeRoles("ADMIN", "SUPER_ADMIN"));
 
 router.get("/", listUsers);
 router.get("/:id", getUserDetails);
+/**
+ * @swagger
+ * /users/{id}/role:
+ *   patch:
+ *     summary: Change User Role
+ *     tags:
+ *       - Users
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: User ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           example:
+ *             role: "ADMIN"
+ *     responses:
+ *       200:
+ *         description: User role updated successfully
+ */
 router.patch("/:id/role", validateRequest(updateUserRoleValidationSchema), changeUserRole);
 router.delete("/:id", removeUser);
 
