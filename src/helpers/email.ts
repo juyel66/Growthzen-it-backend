@@ -29,6 +29,8 @@ console.log("Sending email to:", options.to);
   }
 
   try {
+
+    
     const transporter = nodemailer.createTransport({
       host: emailHost,
       port: emailPort,
@@ -39,6 +41,8 @@ console.log("Sending email to:", options.to);
       },
     });
 
+
+
     await transporter.sendMail({
       from: emailFrom,
       to: options.to,
@@ -46,7 +50,7 @@ console.log("Sending email to:", options.to);
       text: options.text,
       html: options.html,
     });
-    
+
  } catch (error) {
   console.error("EMAIL ERROR:", error);
 
