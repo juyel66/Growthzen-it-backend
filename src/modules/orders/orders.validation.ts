@@ -11,6 +11,7 @@ const parseNumber = (schema: z.ZodType<number>) =>
 
 export const orderStatusUpdateValidationSchema = z.object({
   status: z.enum(["CONFIRMED", "CANCELLED", "DELIVERED"]),
+  adminNote: z.string().trim().nullable().optional(),
 });
 
 export const createOrderValidationSchema = z.object({
