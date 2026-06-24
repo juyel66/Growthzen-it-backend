@@ -35,14 +35,16 @@ const parseOptionalNumber = (value: unknown): number | undefined => {
 export const createOrderHandler = catchAsync(async (req: Request, res: Response) => {
   const currentUser = req.user;
 
-  if (!currentUser) {
-    throw new AppError(401, "User is not authenticated");
-  }
-
-  const order = await createOrder(req.body, {
-    id: currentUser.id,
-    role: currentUser.role,
-  });
+  const order = await createOrder(
+    req.body,
+    currentUser
+      ? {
+          id: currentUser.id,
+          role: currentUser.role,
+          email: currentUser.email,
+        }
+      : undefined
+  );
 
   sendResponse(res, {
     statusCode: 201,
