@@ -31,15 +31,13 @@ console.log("Sending email to:", options.to);
   try {
 
     
-    const transporter = nodemailer.createTransport({
-      host: emailHost,
-      port: emailPort,
-      secure: emailPort === 465,
-      auth: {
-        user: emailUser,
-        pass: emailPass,
-      },
-    });
+  const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: emailUser,
+    pass: emailPass,
+  },
+});
 
 
 
