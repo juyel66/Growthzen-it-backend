@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import AppError from "../../utils/AppError";
 import catchAsync from "../../utils/catchAsync";
 import sendResponse from "../../utils/sendResponse";
-import { createOrder, getMyOrders, getOrderById, getOrders, updateOrderStatus } from "./orders.service";
+import { createOrder, getMyOrders, getOrderById, getOrders, updateOrderStatus, trackOrder } from "./orders.service";
 
 const getParamId = (value: string | string[]): string => (Array.isArray(value) ? value[0] : value);
 
@@ -112,15 +112,41 @@ export const getOrdersHandler = catchAsync(async (req: Request, res: Response) =
 
 export const updateOrderStatusHandler = catchAsync(async (req: Request, res: Response) => {
   const orderId = getParamId(req.params.id);
+  const currentUser = req.user;
 
   if (!orderId) {
     throw new AppError(400, "Order id is required");
   }
 
-  const order = await updateOrderStatus(orderId, req.body);
+  const order = await updateOrderStatus(
+    orderId,
+    req.body,
+    currentUser
+      ? {
+          id: currentUser.id,
+          role: currentUser.role,
+          email: currentUser.email,
+        }
+      : undefined
+  );
 
   sendResponse(res, {
     message: "Order status updated successfully",
+    data: order,
+  });
+});
+
+export const trackOrderHandler = catchAsync(async (req: Request, res: Response) => {
+  const orderCode = getParamId(req.params.orderCode);
+
+  if (!orderCode) {
+    throw new AppError(400, "Order code is required");
+  }
+
+  const order = await trackOrder(orderCode);
+
+  sendResponse(res, {
+    message: "Order tracking details retrieved successfully",
     data: order,
   });
 });
