@@ -8,6 +8,7 @@ const orderInclude = {
     select: {
       id: true,
       productId: true,
+      productCode: true,
       quantity: true,
       size: true,
       unitPrice: true,
@@ -29,6 +30,8 @@ const normalizeText = (value?: string | null): string => value?.trim().toUpperCa
 const mapOrder = (order: OrderRecord): OrderView => ({
   id: order.id,
   userId: order.userId,
+  userEmail: order.userEmail,
+  orderedByRole: order.orderedByRole,
   customerName: order.customerName,
   customerPhone: order.customerPhone,
   address: order.address,
@@ -42,6 +45,7 @@ const mapOrder = (order: OrderRecord): OrderView => ({
   items: order.items.map((item) => ({
     id: item.id,
     productId: item.productId,
+    productCode: item.productCode,
     quantity: item.quantity,
     size: item.size,
     unitPrice: item.unitPrice,
@@ -135,7 +139,7 @@ const assertOrderOwnership = (order: { userId: string | null }, currentUser: Cre
   }
 };
 
-export const createOrder = async (payload: CreateOrderInput, currentUser: CreateOrderRequestUser): Promise<OrderView> => {
+export const createOrder = async (payload: CreateOrderInput, currentUser?: CreateOrderRequestUser): Promise<OrderView> => {
   const productIds = [...new Set(payload.products.map((item) => item.productId))];
 
   const products = await prismaClient.product.findMany({
@@ -146,6 +150,7 @@ export const createOrder = async (payload: CreateOrderInput, currentUser: Create
       sizes: true,
       customerSellPrice: true,
       resellerSellPrice: true,
+      productCode: true,
     },
   });
 
@@ -155,6 +160,8 @@ export const createOrder = async (payload: CreateOrderInput, currentUser: Create
   const normalizedCouponCode = normalizeText(payload.couponCode);
   const normalizedSettingsCouponCode = normalizeText(settings.couponCode);
   const couponIsApplied = Boolean(normalizedCouponCode && settings.couponActive && normalizedCouponCode === normalizedSettingsCouponCode);
+
+  const orderRole = currentUser?.role ?? "CUSTOMER";
 
   const orderItems = payload.products.map((item) => {
     const product = productMap.get(item.productId);
@@ -171,11 +178,12 @@ export const createOrder = async (payload: CreateOrderInput, currentUser: Create
       throw new AppError(400, `Invalid size selected for product ${item.productId}`);
     }
 
-    const unitPrice = getSellingPrice(currentUser.role, product.customerSellPrice, product.resellerSellPrice);
+    const unitPrice = getSellingPrice(orderRole, product.customerSellPrice, product.resellerSellPrice);
     const totalPrice = roundToTwo(unitPrice * item.quantity);
 
     return {
       productId: product.id,
+      productCode: product.productCode,
       quantity: item.quantity,
       size: item.size ?? null,
       unitPrice,
@@ -190,7 +198,9 @@ export const createOrder = async (payload: CreateOrderInput, currentUser: Create
 
   const createdOrder = await prismaClient.order.create({
     data: {
-      userId: currentUser.id,
+      userId: currentUser?.id ?? null,
+      userEmail: currentUser?.email ?? null,
+      orderedByRole: orderRole,
       customerName: payload.customerName,
       customerPhone: payload.customerPhone,
       address: payload.address,
