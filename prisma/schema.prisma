@@ -64,6 +64,8 @@ model AppSetting {
 model Order {
   id             String       @id @default(cuid())
   userId         String?
+  userEmail      String?
+  orderedByRole  Role         @default(CUSTOMER)
   customerName   String
   customerPhone  String
   address        String
@@ -81,15 +83,16 @@ model Order {
 }
 
 model OrderItem {
-  id         String  @id @default(cuid())
-  orderId    String
-  productId  String
-  quantity   Int
-  size       String?
-  unitPrice  Float
-  totalPrice Float
-  order      Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product    Product @relation(fields: [productId], references: [id])
+  id          String  @id @default(cuid())
+  orderId     String
+  productId   String
+  productCode String
+  quantity    Int
+  size        String?
+  unitPrice   Float
+  totalPrice  Float
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product     Product @relation(fields: [productId], references: [id])
 }
 
 enum Role {
