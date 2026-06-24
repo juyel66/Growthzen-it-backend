@@ -18,6 +18,7 @@ export interface CreateOrderInput {
 export interface CreateOrderRequestUser {
   id: string;
   role: Role;
+  email?: string;
 }
 
 export interface UpdateOrderStatusInput {
@@ -27,6 +28,7 @@ export interface UpdateOrderStatusInput {
 export interface OrderItemView {
   id: string;
   productId: string;
+  productCode: string;
   quantity: number;
   size: string | null;
   unitPrice: number;
@@ -36,6 +38,8 @@ export interface OrderItemView {
 export interface OrderView {
   id: string;
   userId: string | null;
+  userEmail: string | null;
+  orderedByRole: Role;
   customerName: string;
   customerPhone: string;
   address: string;
