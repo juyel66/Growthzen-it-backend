@@ -1,7 +1,20 @@
 import type { DeliveryArea, OrderStatus, Prisma, Role } from "../../../generated/prisma/client";
 import prismaClient from "../../config/prisma";
 import AppError from "../../utils/AppError";
-import type { CreateOrderInput, CreateOrderRequestUser, OrderListQuery, OrderListResponse, OrderView, UpdateOrderStatusInput } from "./orders.interface";
+import sendEmail from "../../helpers/email";
+import {
+  getAdminOrderCreatedEmail,
+  getCustomerOrderReceivedEmail,
+  getOrderStatusUpdateEmail,
+} from "../../helpers/emailTemplates";
+import type {
+  CreateOrderInput,
+  CreateOrderRequestUser,
+  OrderListQuery,
+  OrderListResponse,
+  OrderView,
+  UpdateOrderStatusInput,
+} from "./orders.interface";
 
 const orderInclude = {
   items: {
@@ -21,17 +34,18 @@ type OrderRecord = Prisma.OrderGetPayload<{
   include: typeof orderInclude;
 }>;
 
-const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
 const roundToTwo = (value: number): number => Number(value.toFixed(2));
 
 const normalizeText = (value?: string | null): string => value?.trim().toUpperCase() ?? "";
 
 const mapOrder = (order: OrderRecord): OrderView => ({
   id: order.id,
+  orderCode: order.orderCode,
   userId: order.userId,
   userEmail: order.userEmail,
+  email: order.userEmail,
   orderedByRole: order.orderedByRole,
+  orderRole: order.orderedByRole,
   customerName: order.customerName,
   customerPhone: order.customerPhone,
   address: order.address,
@@ -53,6 +67,10 @@ const mapOrder = (order: OrderRecord): OrderView => ({
   })),
   createdAt: order.createdAt,
   updatedAt: order.updatedAt,
+  confirmedAt: order.confirmedAt,
+  cancelledAt: order.cancelledAt,
+  deliveredAt: order.deliveredAt,
+  adminNote: order.adminNote,
 });
 
 const getAppliedDeliveryCharge = async (deliveryArea: DeliveryArea): Promise<number> => {
@@ -105,8 +123,10 @@ const buildOrderSearchFilter = (search?: string): Prisma.OrderWhereInput => {
 
   return {
     OR: [
+      { orderCode: { contains: normalizedSearch, mode: "insensitive" } },
       { customerName: { contains: normalizedSearch, mode: "insensitive" } },
       { customerPhone: { contains: normalizedSearch, mode: "insensitive" } },
+      { userEmail: { contains: normalizedSearch, mode: "insensitive" } },
       { address: { contains: normalizedSearch, mode: "insensitive" } },
       { couponCode: { contains: normalizedSearch, mode: "insensitive" } },
     ],
@@ -137,6 +157,41 @@ const assertOrderOwnership = (order: { userId: string | null }, currentUser: Cre
   if (order.userId !== currentUser.id) {
     throw new AppError(403, "You do not have permission to access this order");
   }
+};
+
+const generateOrderCode = async (): Promise<string> => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  const dateStr = `${year}${month}${day}`;
+  const prefix = `ORD-${dateStr}`;
+
+  const lastOrder = await prismaClient.order.findFirst({
+    where: {
+      orderCode: {
+        startsWith: prefix,
+      },
+    },
+    orderBy: {
+      orderCode: "desc",
+    },
+    select: {
+      orderCode: true,
+    },
+  });
+
+  let nextSeq = 1;
+  if (lastOrder && lastOrder.orderCode) {
+    const parts = lastOrder.orderCode.split("-");
+    const lastSeqStr = parts[parts.length - 1];
+    const lastSeq = parseInt(lastSeqStr, 10);
+    if (!isNaN(lastSeq)) {
+      nextSeq = lastSeq + 1;
+    }
+  }
+
+  return `${prefix}-${String(nextSeq).padStart(4, "0")}`;
 };
 
 export const createOrder = async (payload: CreateOrderInput, currentUser?: CreateOrderRequestUser): Promise<OrderView> => {
@@ -196,26 +251,98 @@ export const createOrder = async (payload: CreateOrderInput, currentUser?: Creat
   const deliveryCharge = roundToTwo(await getAppliedDeliveryCharge(payload.deliveryArea));
   const payableAmount = roundToTwo(Math.max(0, subtotal - discountAmount + deliveryCharge));
 
-  const createdOrder = await prismaClient.order.create({
-    data: {
-      userId: currentUser?.id ?? null,
-      userEmail: currentUser?.email ?? null,
-      orderedByRole: orderRole,
-      customerName: payload.customerName,
-      customerPhone: payload.customerPhone,
-      address: payload.address,
-      deliveryArea: payload.deliveryArea,
-      subtotal,
-      discountAmount,
-      deliveryCharge,
-      payableAmount,
-      couponCode: couponIsApplied ? normalizedCouponCode : null,
-      status: "PENDING",
-      items: {
-        create: orderItems,
-      },
-    },
-    include: orderInclude,
+  let retries = 5;
+  let createdOrder: OrderRecord | null = null;
+
+  while (retries > 0) {
+    const orderCode = await generateOrderCode();
+    try {
+      createdOrder = await prismaClient.order.create({
+        data: {
+          orderCode,
+          userId: currentUser?.id ?? null,
+          userEmail: currentUser?.email ?? null,
+          orderedByRole: orderRole,
+          customerName: payload.customerName,
+          customerPhone: payload.customerPhone,
+          address: payload.address,
+          deliveryArea: payload.deliveryArea,
+          subtotal,
+          discountAmount,
+          deliveryCharge,
+          payableAmount,
+          couponCode: couponIsApplied ? normalizedCouponCode : null,
+          status: "PENDING",
+          items: {
+            create: orderItems,
+          },
+        },
+        include: orderInclude,
+      });
+      break;
+    } catch (error: any) {
+      if (error.code === "P2002" && error.meta?.target?.includes("orderCode")) {
+        retries--;
+        if (retries === 0) {
+          throw new AppError(500, "Failed to generate a unique order code after multiple retries");
+        }
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  if (!createdOrder) {
+    throw new AppError(500, "Failed to create order");
+  }
+
+  // Trigger emails asynchronously (background) so we do not block order confirmation response
+  Promise.resolve().then(async () => {
+    try {
+      // 1. Admin Email Notification
+      const adminHtml = getAdminOrderCreatedEmail({
+        orderCode: createdOrder!.orderCode,
+        customerName: createdOrder!.customerName,
+        customerPhone: createdOrder!.customerPhone,
+        customerEmail: createdOrder!.userEmail,
+        customerRole: createdOrder!.orderedByRole,
+        deliveryArea: createdOrder!.deliveryArea,
+        address: createdOrder!.address,
+        items: createdOrder!.items,
+        subtotal: createdOrder!.subtotal,
+        discountAmount: createdOrder!.discountAmount,
+        deliveryCharge: createdOrder!.deliveryCharge,
+        payableAmount: createdOrder!.payableAmount,
+        status: createdOrder!.status,
+      });
+
+      await sendEmail({
+        to: "mdjuyelrana.com.bd1@gmail.com",
+        subject: `New Order Received - ${createdOrder!.orderCode}`,
+        text: `New order ${createdOrder!.orderCode} received from ${createdOrder!.customerName}.`,
+        html: adminHtml,
+      });
+
+      // 2. Customer Order Received Email (only if authenticated and email exists)
+      if (createdOrder!.userId && createdOrder!.userEmail) {
+        const customerHtml = getCustomerOrderReceivedEmail({
+          orderCode: createdOrder!.orderCode,
+          items: createdOrder!.items,
+          subtotal: createdOrder!.subtotal,
+          deliveryCharge: createdOrder!.deliveryCharge,
+          payableAmount: createdOrder!.payableAmount,
+        });
+
+        await sendEmail({
+          to: createdOrder!.userEmail,
+          subject: `Order Received Successfully - ${createdOrder!.orderCode}`,
+          text: `Your order ${createdOrder!.orderCode} has been received successfully.`,
+          html: customerHtml,
+        });
+      }
+    } catch (emailError) {
+      console.error("Failed to send order placement emails:", emailError);
+    }
   });
 
   return mapOrder(createdOrder);
@@ -232,8 +359,13 @@ export const getMyOrders = async (currentUser: CreateOrderRequestUser): Promise<
 };
 
 export const getOrderById = async (orderId: string, currentUser: CreateOrderRequestUser): Promise<OrderView> => {
-  const order = await prismaClient.order.findUnique({
-    where: { id: orderId },
+  const order = await prismaClient.order.findFirst({
+    where: {
+      OR: [
+        { id: orderId },
+        { orderCode: orderId },
+      ],
+    },
     include: orderInclude,
   });
 
@@ -272,9 +404,18 @@ export const getOrders = async (query: OrderListQuery): Promise<OrderListRespons
   };
 };
 
-export const updateOrderStatus = async (orderId: string, payload: UpdateOrderStatusInput): Promise<OrderView> => {
-  const existingOrder = await prismaClient.order.findUnique({
-    where: { id: orderId },
+export const updateOrderStatus = async (
+  orderId: string,
+  payload: UpdateOrderStatusInput,
+  currentUser?: CreateOrderRequestUser
+): Promise<OrderView> => {
+  const existingOrder = await prismaClient.order.findFirst({
+    where: {
+      OR: [
+        { id: orderId },
+        { orderCode: orderId },
+      ],
+    },
     include: orderInclude,
   });
 
@@ -282,11 +423,106 @@ export const updateOrderStatus = async (orderId: string, payload: UpdateOrderSta
     throw new AppError(404, "Order not found");
   }
 
-  const updatedOrder = await prismaClient.order.update({
-    where: { id: orderId },
-    data: { status: payload.status },
-    include: orderInclude,
+  const statusChanged = existingOrder.status !== payload.status;
+
+  const updateData: Prisma.OrderUpdateInput = {
+    status: payload.status,
+    adminNote: payload.adminNote !== undefined ? payload.adminNote : undefined,
+  };
+
+  if (statusChanged) {
+    if (payload.status === "CONFIRMED") {
+      updateData.confirmedAt = new Date();
+    } else if (payload.status === "CANCELLED") {
+      updateData.cancelledAt = new Date();
+    } else if (payload.status === "DELIVERED") {
+      updateData.deliveredAt = new Date();
+    }
+  }
+
+  const updatedOrder = await prismaClient.$transaction(async (tx) => {
+    if (statusChanged) {
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId: existingOrder.id,
+          previousStatus: existingOrder.status,
+          newStatus: payload.status,
+          changedById: currentUser?.id ?? null,
+          adminNote: payload.adminNote ?? null,
+        },
+      });
+    }
+
+    return tx.order.update({
+      where: { id: existingOrder.id },
+      data: updateData,
+      include: orderInclude,
+    });
   });
 
+  // Trigger status update email asynchronously
+  if (statusChanged && updatedOrder.userEmail) {
+    Promise.resolve().then(async () => {
+      try {
+        const emailHtml = getOrderStatusUpdateEmail({
+          orderCode: updatedOrder.orderCode,
+          items: updatedOrder.items,
+          payableAmount: updatedOrder.payableAmount,
+          status: updatedOrder.status,
+          adminNote: payload.adminNote,
+        });
+
+        let subject = "";
+        if (updatedOrder.status === "CONFIRMED") {
+          subject = `Order Confirmed - ${updatedOrder.orderCode}`;
+        } else if (updatedOrder.status === "CANCELLED") {
+          subject = `Order Cancelled - ${updatedOrder.orderCode}`;
+        } else if (updatedOrder.status === "DELIVERED") {
+          subject = `Order Delivered - ${updatedOrder.orderCode}`;
+        } else {
+          subject = `Order Status Updated - ${updatedOrder.orderCode}`;
+        }
+
+        await sendEmail({
+          to: updatedOrder.userEmail!,
+          subject,
+          text: `Your order ${updatedOrder.orderCode} status is now ${updatedOrder.status}.`,
+          html: emailHtml,
+        });
+      } catch (emailError) {
+        console.error("Failed to send order status update email:", emailError);
+      }
+    });
+  }
+
   return mapOrder(updatedOrder);
+};
+
+export interface OrderTrackingView {
+  orderCode: string;
+  status: OrderStatus;
+  createdAt: Date;
+  confirmedAt: Date | null;
+  deliveredAt: Date | null;
+  cancelledAt: Date | null;
+}
+
+export const trackOrder = async (orderCode: string): Promise<OrderTrackingView> => {
+  const order = await prismaClient.order.findUnique({
+    where: { orderCode },
+    select: {
+      orderCode: true,
+      status: true,
+      createdAt: true,
+      confirmedAt: true,
+      deliveredAt: true,
+      cancelledAt: true,
+    },
+  });
+
+  if (!order) {
+    throw new AppError(404, "Order not found");
+  }
+
+  return order;
 };
