@@ -26,7 +26,7 @@ app.get("/", (_req, res) => {
 });
 
 app.use(
-  "/api-docs",
+  "/growthzen-api",
   swaggerUi.serve,
   swaggerUi.setup(swaggerSpec)
 );
