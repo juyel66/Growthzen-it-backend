@@ -8,41 +8,34 @@ interface SendEmailOptions {
 }
 
 const sendEmail = async (options: SendEmailOptions): Promise<void> => {
-
   const emailUser = process.env.EMAIL_USER;
   const emailPass = process.env.EMAIL_PASS;
   const emailFrom = process.env.EMAIL_FROM;
-  const emailHost = process.env.EMAIL_HOST ?? "smtp.gmail.com";
-  const emailPort = Number(process.env.EMAIL_PORT) || 587;
-
-
 
   console.log("EMAIL_USER:", process.env.EMAIL_USER);
-console.log("EMAIL_FROM:", process.env.EMAIL_FROM);
-console.log("EMAIL_PASS EXISTS:", !!process.env.EMAIL_PASS);
-console.log("Sending email to:", options.to);
-
-
+  console.log("EMAIL_FROM:", process.env.EMAIL_FROM);
+  console.log("EMAIL_PASS EXISTS:", !!process.env.EMAIL_PASS);
+  console.log("Sending email to:", options.to);
 
   if (!emailUser || !emailPass || !emailFrom) {
     throw new Error("Email configuration is incomplete");
   }
 
   try {
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: emailUser,
+        pass: emailPass,
+      },
+      connectionTimeout: 30000,
+      greetingTimeout: 30000,
+      socketTimeout: 30000,
+    });
 
-    
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: emailUser,
-    pass: emailPass,
-  },
-  connectionTimeout: 30000,
-  greetingTimeout: 30000,
-  socketTimeout: 30000,
-});
-
-
+    console.log("Verifying SMTP connection...");
+    await transporter.verify();
+    console.log("SMTP connection verified successfully.");
 
     await transporter.sendMail({
       from: emailFrom,
@@ -52,14 +45,15 @@ const transporter = nodemailer.createTransport({
       html: options.html,
     });
 
- } catch (error) {
-  console.error("EMAIL ERROR:", error);
+    console.log("Email sent successfully.");
+  } catch (error) {
+    console.error("EMAIL ERROR:", error);
 
-  const message =
-    error instanceof Error ? error.message : "Failed to send email";
+    const message =
+      error instanceof Error ? error.message : "Failed to send email";
 
-  throw new Error(message);
-}
+    throw new Error(message);
+  }
 };
 
 export default sendEmail;
