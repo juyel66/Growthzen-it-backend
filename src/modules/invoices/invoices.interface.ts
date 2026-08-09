@@ -28,6 +28,9 @@ export interface FullInvoiceView {
   customerName: string;
   customerPhone: string;
   customerEmail: string;
+  customerRole?: string;
+  userRole?: string;
+  role?: string;
   phone: string;
   email: string;
 
@@ -46,6 +49,9 @@ export interface FullInvoiceView {
     customerName: string;
     customerPhone: string;
     customerEmail: string;
+    customerRole?: string;
+    userRole?: string;
+    role?: string;
     shippingAddress: string;
     district: string;
     division: string;
@@ -68,10 +74,10 @@ export interface FullInvoiceView {
   discount: number;
   deliveryCharge: number;
   grandTotal: number;
-  productCost: number;
-  courierCost: number;
-  courierProfit: number;
-  netProfit: number;
+  productCost?: number | null;
+  courierCost?: number | null;
+  courierProfit?: number | null;
+  netProfit?: number | null;
 }
 
 export interface PublicInvoiceProductItem {
@@ -126,6 +132,9 @@ export interface PublicInvoiceVerificationView {
     division: string;
     areaType: string;
     name?: string;
+    role?: string;
+    customerRole?: string;
+    userRole?: string;
   };
 
   shipping: {
@@ -184,6 +193,9 @@ export interface PublicInvoiceVerificationView {
   customerName?: string;
   customerPhone?: string;
   customerEmail?: string;
+  customerRole?: string;
+  userRole?: string;
+  role?: string;
   fullAddress?: string;
   district?: string;
   division?: string;
@@ -229,6 +241,17 @@ export interface AdminInvoiceListItem {
   orderNumber: string;
   customerName: string;
   customerPhone: string;
+  customerRole?: string;
+  userRole?: string;
+  role?: string;
+  customer?: {
+    name: string;
+    phone: string;
+    email?: string;
+    role: string;
+    customerRole?: string;
+    userRole?: string;
+  };
   grandTotal: number;
   paymentStatus: string;
   orderStatus: string;
