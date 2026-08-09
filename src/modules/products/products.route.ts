@@ -6,6 +6,8 @@ import {
   createProductHandler,
   deleteProductHandler,
   generateProductIdentifiersHandler,
+  getBestSellersHandler,
+  getOffersHandler,
   getProductByIdHandler,
   getProductsHandler,
   updateProductHandler,
@@ -22,24 +24,47 @@ const router = Router();
  * @swagger
  * /products:
  *   get:
- *     summary: Get all products with review statistics
+ *     summary: Get all products with review statistics and filtering
  *     tags: [Products]
  *     security: [{ bearerAuth: [] }]
  *     responses:
  *       200:
  *         description: Products retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success: { type: boolean, example: true }
- *                 message: { type: string, example: Products retrieved successfully }
- *                 data:
- *                   type: array
- *                   items: { $ref: '#/components/schemas/ProductResponse' }
  */
 router.get("/", optionalAuthenticate, getProductsHandler);
+
+/**
+ * @swagger
+ * /products/best-sellers:
+ *   get:
+ *     summary: Get best-selling products calculated from delivered orders
+ *     tags: [Products]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: query, name: limit, schema: { type: integer, example: 12 }, description: "Number of products to return" }
+ *       - { in: query, name: page, schema: { type: integer, example: 1 }, description: "Page number" }
+ *       - { in: query, name: categoryId, schema: { type: string }, description: "Filter by category ID" }
+ *     responses:
+ *       200:
+ *         description: Best sellers retrieved successfully
+ */
+router.get("/best-sellers", optionalAuthenticate, getBestSellersHandler);
+
+/**
+ * @swagger
+ * /products/offers:
+ *   get:
+ *     summary: Get active offer products for current user role
+ *     tags: [Products]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: query, name: limit, schema: { type: integer, example: 12 } }
+ *       - { in: query, name: page, schema: { type: integer, example: 1 } }
+ *     responses:
+ *       200:
+ *         description: Offers retrieved successfully
+ */
+router.get("/offers", optionalAuthenticate, getOffersHandler);
 
 /**
  * @swagger
@@ -61,7 +86,7 @@ router.get("/generate-identifiers", optionalAuthenticate, generateProductIdentif
  * @swagger
  * /products/{id}:
  *   get:
- *     summary: Get a product with review statistics
+ *     summary: Get a product by ID or Slug with review statistics
  *     tags: [Products]
  *     security: [{ bearerAuth: [] }]
  *     parameters:
@@ -69,14 +94,6 @@ router.get("/generate-identifiers", optionalAuthenticate, generateProductIdentif
  *     responses:
  *       200:
  *         description: Product retrieved successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success: { type: boolean, example: true }
- *                 message: { type: string, example: Product retrieved successfully }
- *                 data: { $ref: '#/components/schemas/ProductResponse' }
  *       404: { description: Product not found }
  */
 router.get("/:id", optionalAuthenticate, getProductByIdHandler);
