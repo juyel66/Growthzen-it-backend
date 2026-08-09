@@ -1,7 +1,7 @@
 import type { Prisma, Role } from "@prisma/client";
 import AppError from "../../utils/AppError";
 import prismaClient from "../../config/prisma";
-import { calculateFinalPrice, type CalculatedPrice } from "../pricing/pricing.service";
+import { calculateFinalPrice, getDisplayPrice, type CalculatedPrice } from "../pricing/pricing.service";
 import { BASE_URL, formatPublicUrl } from "../../utils/imageUrl";
 
 export const commerceProductSelect = {
@@ -12,10 +12,13 @@ export const commerceProductSelect = {
   productCode: true,
   shortDescription: true,
   customerSellPrice: true,
+  customerSpecialPrice: true,
   salePrice: true,
   specialSaleEnabled: true,
   discountEnabled: true,
   resellerPrice: true,
+  resellerSellPrice: true,
+  resellerSpecialPrice: true,
   discountType: true,
   discountValue: true,
   status: true,
@@ -32,10 +35,14 @@ export interface CommerceProductView {
   productCode: string;
   shortDescription: string;
   customerSellPrice: number;
+  customerSpecialPrice?: number | null;
+  displayPrice: number;
   salePrice: number | null;
   specialSaleEnabled: boolean;
   discountEnabled: boolean;
   resellerPrice?: number;
+  resellerSellPrice?: number;
+  resellerSpecialPrice?: number | null;
   status: CommerceProductRecord["status"];
 }
 
@@ -54,12 +61,14 @@ export const mapCommerceProduct = (product: CommerceProductRecord, role: Role): 
     productCode: product.productCode,
     shortDescription: product.shortDescription,
     customerSellPrice: product.customerSellPrice,
-    salePrice: product.salePrice,
+    customerSpecialPrice: product.customerSpecialPrice ?? (product.salePrice && product.specialSaleEnabled ? product.salePrice : null),
+    displayPrice: getDisplayPrice(product, role),
+    salePrice: product.customerSpecialPrice ?? product.salePrice,
     specialSaleEnabled: product.specialSaleEnabled,
     discountEnabled: product.discountEnabled,
-    ...(role === "RESELLER" || role === "ADMIN" || role === "SUPER_ADMIN"
-      ? { resellerPrice: product.resellerPrice }
-      : {}),
+    resellerPrice: product.resellerSellPrice ?? product.resellerPrice,
+    resellerSellPrice: product.resellerSellPrice ?? product.resellerPrice,
+    resellerSpecialPrice: product.resellerSpecialPrice ?? null,
     status: product.status,
   };
 };
