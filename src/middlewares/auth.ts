@@ -35,16 +35,26 @@ export const authenticate = (req: Request, _res: Response, next: NextFunction): 
   }
 };
 
-export const authorizeRoles = (...allowedRoles: Role[]) => {
-  // Normalize allowed roles to strings for robust runtime comparison
-  const allowed = allowedRoles.map((r) => String(r).toUpperCase().trim());
+export const authorizeRoles = (...args: (Role | string)[]) => {
+  const knownRoles = new Set(["SUPER_ADMIN", "ADMIN", "RESELLER", "CUSTOMER"]);
+  let customErrorMessage = "You do not have permission to access this resource";
+  const allowed: string[] = [];
+
+  for (const arg of args) {
+    const str = String(arg).toUpperCase().trim();
+    if (knownRoles.has(str)) {
+      allowed.push(str);
+    } else if (typeof arg === "string" && arg.trim().length > 0) {
+      customErrorMessage = arg;
+    }
+  }
 
   return (req: Request, _res: Response, next: NextFunction): void => {
     try {
       const userRole = req.user?.role;
 
       if (!userRole || !allowed.includes(String(userRole).toUpperCase().trim())) {
-        throw new AppError(403, "You do not have permission to access this resource");
+        throw new AppError(403, customErrorMessage);
       }
 
       next();
