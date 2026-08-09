@@ -2,7 +2,45 @@ import type { Request, Response } from "express";
 import AppError from "../../utils/AppError";
 import catchAsync from "../../utils/catchAsync";
 import sendResponse from "../../utils/sendResponse";
-import { createProduct, deleteProduct, generateIdentifiers, getBestSellers, getOffers, getProductById, getProducts, updateProduct } from "./products.service";
+import { createProduct, deleteProduct, generateIdentifiers, getBestSellers, getOffers, getProductById, getProducts, getSearchSuggestions, searchProducts, updateProduct } from "./products.service";
+
+export const searchProductsHandler = catchAsync(async (req: Request, res: Response) => {
+  const viewerRole = req.user?.role;
+
+  const queryParams = {
+    q: typeof req.query.q === "string" ? req.query.q : undefined,
+    page: req.query.page !== undefined ? Number(req.query.page) || 1 : 1,
+    limit: req.query.limit !== undefined ? Number(req.query.limit) || 10 : 10,
+    category: typeof req.query.category === "string" ? req.query.category : undefined,
+    minPrice: req.query.minPrice !== undefined ? String(req.query.minPrice) : undefined,
+    maxPrice: req.query.maxPrice !== undefined ? String(req.query.maxPrice) : undefined,
+    sort: typeof req.query.sort === "string" ? req.query.sort : undefined,
+    availability: typeof req.query.availability === "string" ? req.query.availability : undefined,
+  };
+
+  const result = await searchProducts(queryParams, viewerRole);
+
+  sendResponse(res, {
+    message: "Search results retrieved successfully",
+    meta: result.pagination,
+    data: {
+      products: result.products,
+      pagination: result.pagination,
+    },
+  });
+});
+
+export const getSearchSuggestionsHandler = catchAsync(async (req: Request, res: Response) => {
+  const viewerRole = req.user?.role;
+  const q = typeof req.query.q === "string" ? req.query.q : undefined;
+
+  const result = await getSearchSuggestions(q, viewerRole);
+
+  sendResponse(res, {
+    message: "Search suggestions retrieved successfully",
+    data: result,
+  });
+});
 
 export const generateProductIdentifiersHandler = catchAsync(async (req: Request, res: Response) => {
   const categoryId = typeof req.query.categoryId === "string" ? req.query.categoryId : undefined;
