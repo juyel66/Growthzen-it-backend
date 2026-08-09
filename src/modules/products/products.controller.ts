@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import AppError from "../../utils/AppError";
 import catchAsync from "../../utils/catchAsync";
 import sendResponse from "../../utils/sendResponse";
-import { createProduct, deleteProduct, generateIdentifiers, getProductById, getProducts, updateProduct } from "./products.service";
+import { createProduct, deleteProduct, generateIdentifiers, getBestSellers, getOffers, getProductById, getProducts, updateProduct } from "./products.service";
 
 export const generateProductIdentifiersHandler = catchAsync(async (req: Request, res: Response) => {
   const categoryId = typeof req.query.categoryId === "string" ? req.query.categoryId : undefined;
@@ -38,20 +38,44 @@ export const createProductHandler = catchAsync(async (req: Request, res: Respons
 
 export const getProductsHandler = catchAsync(async (req: Request, res: Response) => {
   const viewerRole = req.user?.role;
-  const products = await getProducts(viewerRole);
+  const result = await getProducts(req.query, viewerRole);
 
   sendResponse(res, {
     message: "Products retrieved successfully",
-    data: products,
+    meta: result.meta,
+    data: result.data,
+  });
+});
+
+export const getBestSellersHandler = catchAsync(async (req: Request, res: Response) => {
+  const viewerRole = req.user?.role;
+  const result = await getBestSellers(req.query, viewerRole);
+
+  sendResponse(res, {
+    message: "Best sellers retrieved successfully",
+    meta: result.meta,
+    data: result.data,
+  });
+});
+
+export const getOffersHandler = catchAsync(async (req: Request, res: Response) => {
+  const viewerRole = req.user?.role;
+  const result = await getOffers(req.query, viewerRole);
+
+  sendResponse(res, {
+    message: "Offers retrieved successfully",
+    meta: result.meta,
+    data: result.data,
   });
 });
 
 export const getProductByIdHandler = catchAsync(async (req: Request, res: Response) => {
   const viewerRole = req.user?.role;
-  const productId = getParamId(req.params.id);
+  const rawId = req.params.id || req.params.slug;
+  const productId = getParamId(rawId);
 
   if (!productId) {
-    throw new AppError(400, "Product id is required");
+    throw new AppError(400, "Product id or slug is required");
   }
 
   const product = await getProductById(productId, viewerRole);
