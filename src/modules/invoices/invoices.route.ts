@@ -1,8 +1,11 @@
 import { Router } from "express";
-import { authenticate } from "../../middlewares/auth";
-import { getAllInvoicesHandler, getInvoiceHandler, getPublicInvoiceHandler } from "./invoices.controller";
+import { authenticate, authorizeRoles } from "../../middlewares/auth";
+import { getAllInvoicesHandler, getInvoiceHandler, getMyInvoicesHandler, getPublicInvoiceHandler } from "./invoices.controller";
 
 const router = Router();
+
+router.get("/my-invoices", authenticate, getMyInvoicesHandler);
+router.get("/my", authenticate, getMyInvoicesHandler);
 
 /**
  * @swagger
@@ -14,7 +17,7 @@ const router = Router();
  *     responses:
  *       200: { description: Invoices retrieved successfully }
  */
-router.get("/", authenticate, getAllInvoicesHandler);
+router.get("/", authenticate, authorizeRoles("ADMIN", "SUPER_ADMIN"), getAllInvoicesHandler);
 
 /**
  * @swagger
