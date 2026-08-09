@@ -366,6 +366,102 @@ const generateOrderCode = async (): Promise<string> => {
 export const createOrder = async (payload: CreateOrderInput, currentUser?: CreateOrderRequestUser): Promise<OrderView> => {
   const productIds = [...new Set(payload.products.map((item) => item.productId))];
 
+  // Resolve target userId and orderedByRole for owner
+  let targetUserId: string | null = null;
+  let orderRole: Role = "CUSTOMER";
+
+  if (currentUser) {
+    if (currentUser.role === "ADMIN" || currentUser.role === "SUPER_ADMIN") {
+      const explicitId = payload.userId || payload.customerId;
+      if (explicitId) {
+        const targetUser = await prismaClient.user.findUnique({ where: { id: explicitId } });
+        if (targetUser) {
+          targetUserId = targetUser.id;
+          orderRole = targetUser.role;
+        }
+      }
+
+      if (!targetUserId) {
+        const searchEmail = (payload.customerEmail || payload.userEmail || payload.guestEmail || "").trim();
+        if (searchEmail) {
+          const targetUser = await prismaClient.user.findFirst({
+            where: { email: { equals: searchEmail, mode: "insensitive" } },
+          });
+          if (targetUser) {
+            targetUserId = targetUser.id;
+            orderRole = targetUser.role;
+          }
+        }
+      }
+
+      if (!targetUserId) {
+        const searchPhone = (payload.customerPhone || payload.guestPhone || "").trim();
+        if (searchPhone) {
+          const existingOrder = await prismaClient.order.findFirst({
+            where: {
+              userId: { not: null },
+              OR: [
+                { customerPhone: searchPhone },
+                { guestPhone: searchPhone },
+              ],
+            },
+            select: { userId: true },
+          });
+          if (existingOrder?.userId) {
+            const targetUser = await prismaClient.user.findUnique({ where: { id: existingOrder.userId } });
+            if (targetUser) {
+              targetUserId = targetUser.id;
+              orderRole = targetUser.role;
+            }
+          }
+        }
+      }
+      // If no target user matched, leave targetUserId = null (Guest order created by Admin)
+    } else {
+      // Non-admin user (CUSTOMER or RESELLER) placing order for themselves
+      targetUserId = currentUser.id;
+      orderRole = currentUser.role;
+    }
+  } else {
+    // Unauthenticated guest checkout: check if customer email or phone matches an existing registered user
+    const searchEmail = (payload.customerEmail || payload.userEmail || payload.guestEmail || "").trim();
+    if (searchEmail) {
+      const targetUser = await prismaClient.user.findFirst({
+        where: { email: { equals: searchEmail, mode: "insensitive" } },
+      });
+      if (targetUser) {
+        targetUserId = targetUser.id;
+        orderRole = targetUser.role;
+      }
+    }
+
+    if (!targetUserId) {
+      const searchPhone = (payload.customerPhone || payload.guestPhone || "").trim();
+      if (searchPhone) {
+        const existingOrder = await prismaClient.order.findFirst({
+          where: {
+            userId: { not: null },
+            OR: [
+              { customerPhone: searchPhone },
+              { guestPhone: searchPhone },
+            ],
+          },
+          select: { userId: true },
+        });
+        if (existingOrder?.userId) {
+          const targetUser = await prismaClient.user.findUnique({ where: { id: existingOrder.userId } });
+          if (targetUser) {
+            targetUserId = targetUser.id;
+            orderRole = targetUser.role;
+          }
+        }
+      }
+    }
+  }
+
+
+  const isGuest = !targetUserId;
+
   const products = await prismaClient.product.findMany({
     where: { id: { in: productIds } },
     select: {
@@ -373,10 +469,13 @@ export const createOrder = async (payload: CreateOrderInput, currentUser?: Creat
       costPrice: true,
       attributes: true,
       customerSellPrice: true,
+      customerSpecialPrice: true,
       salePrice: true,
       specialSaleEnabled: true,
       discountEnabled: true,
       resellerPrice: true,
+      resellerSellPrice: true,
+      resellerSpecialPrice: true,
       discountType: true,
       discountValue: true,
       productCode: true,
@@ -386,7 +485,6 @@ export const createOrder = async (payload: CreateOrderInput, currentUser?: Creat
   });
 
   const productMap = new Map(products.map((product) => [product.id, product] as const));
-  const orderRole = currentUser?.role ?? "CUSTOMER";
 
   // Calculate product-level pricing details for each line item
   const lineDetails = payload.products.map((item) => {
@@ -454,7 +552,6 @@ export const createOrder = async (payload: CreateOrderInput, currentUser?: Creat
   const specialDiscount = roundToTwo(lineDetails.reduce((sum, item) => sum + item.lineSpecialDiscount, 0));
   const subtotalAfterProductDiscounts = roundToTwo(lineDetails.reduce((sum, item) => sum + item.totalPrice, 0));
 
-  const isGuest = !currentUser;
   const guestName = payload.guestName || payload.customerName || null;
   const guestPhone = payload.guestPhone || payload.customerPhone || null;
   const guestEmail = payload.guestEmail || payload.customerEmail || payload.userEmail || null;
@@ -469,7 +566,7 @@ export const createOrder = async (payload: CreateOrderInput, currentUser?: Creat
   const customerPhone = payload.customerPhone || guestPhone || "";
   const customerEmail = payload.customerEmail || payload.userEmail || payload.guestEmail || (currentUser?.email ?? null);
   const finalAddress = payload.address || [guestAddress, guestUpazila, guestDistrict, guestDivision].filter(Boolean).join(", ");
-  const userEmail = isGuest ? customerEmail : (currentUser.email || customerEmail || null);
+  const userEmail = isGuest ? customerEmail : (currentUser?.email || customerEmail || null);
 
   const rawPaymentMethod = (payload.paymentMethod || "COD").toUpperCase();
   const validPaymentMethods = ["COD", "BKASH", "NAGAD", "SSLCOMMERZ", "STRIPE", "PAYPAL"] as const;
@@ -558,7 +655,7 @@ export const createOrder = async (payload: CreateOrderInput, currentUser?: Creat
         const newOrder = await tx.order.create({
           data: {
             orderCode,
-            userId: isGuest ? null : currentUser.id,
+            userId: targetUserId,
             userEmail,
             customerEmail,
             paymentMethod: selectedPaymentMethod,
@@ -742,6 +839,23 @@ export const createOrder = async (payload: CreateOrderInput, currentUser?: Creat
 };
 
 export const getMyOrders = async (currentUser: CreateOrderRequestUser): Promise<OrderView[]> => {
+  // Backfill orphaned orders matching currentUser.email where userId is null
+  if (currentUser.email) {
+    await prismaClient.order.updateMany({
+      where: {
+        userId: null,
+        OR: [
+          { userEmail: { equals: currentUser.email, mode: "insensitive" } },
+          { customerEmail: { equals: currentUser.email, mode: "insensitive" } },
+        ],
+      },
+      data: {
+        userId: currentUser.id,
+        orderedByRole: currentUser.role as Role,
+      },
+    });
+  }
+
   const orders = await prismaClient.order.findMany({
     where: { userId: currentUser.id },
     orderBy: { createdAt: "desc" },
@@ -750,6 +864,27 @@ export const getMyOrders = async (currentUser: CreateOrderRequestUser): Promise<
 
   return orders.map(mapOrder);
 };
+
+export const getMyOrderSummary = async (currentUser: CreateOrderRequestUser) => {
+  const orders = await getMyOrders(currentUser);
+
+  const totalOrders = orders.length;
+  const pendingOrders = orders.filter((o) =>
+    ["PENDING", "CONFIRMED", "PROCESSING", "PACKED", "SHIPPED"].includes((o.status || "").toUpperCase())
+  ).length;
+  const deliveredOrders = orders.filter((o) => (o.status || "").toUpperCase() === "DELIVERED").length;
+  const totalPurchase = roundToTwo(orders.reduce((sum, o) => sum + (Number(o.payableAmount) || 0), 0));
+  const recentOrders = orders.slice(0, 5);
+
+  return {
+    totalOrders,
+    pendingOrders,
+    deliveredOrders,
+    totalPurchase,
+    recentOrders,
+  };
+};
+
 
 export const getOrderById = async (orderId: string, currentUser: CreateOrderRequestUser): Promise<OrderView> => {
   const order = await prismaClient.order.findFirst({
