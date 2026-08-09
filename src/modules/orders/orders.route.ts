@@ -4,6 +4,7 @@ import validateRequest from "../../middlewares/validateRequest";
 import {
   createOrderHandler,
   getMyOrdersHandler,
+  getMyOrderSummaryHandler,
   getOrderByIdHandler,
   getOrderInvoiceHandler,
   getOrdersHandler,
@@ -13,6 +14,7 @@ import {
   cancelOrderHandler,
   cancelMyOrderHandler,
 } from "./orders.controller";
+
 import { createOrderValidationSchema, orderStatusUpdateValidationSchema } from "./orders.validation";
 
 const router = Router();
@@ -101,7 +103,9 @@ router.post("/", optionalAuthenticate, validateRequest(createOrderValidationSche
  *       401: { description: Authentication required }
  */
 router.get("/my-orders", authenticate, authorizeRoles("CUSTOMER", "RESELLER", "ADMIN", "SUPER_ADMIN"), getMyOrdersHandler);
+router.get("/my-summary", authenticate, authorizeRoles("CUSTOMER", "RESELLER", "ADMIN", "SUPER_ADMIN"), getMyOrderSummaryHandler);
 router.get("/", authenticate, authorizeRoles("ADMIN", "SUPER_ADMIN"), getOrdersHandler);
+
 
 /**
  * @swagger
