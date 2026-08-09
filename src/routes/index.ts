@@ -16,6 +16,7 @@ import couponRoutes from "../modules/coupons/coupons.route";
 import reportRoutes from "../modules/reports/reports.route";
 import categoryRoutes from "../modules/categories/category.route";
 import invoiceRoutes, { publicInvoiceRouter } from "../modules/invoices/invoices.route";
+import contactRoutes, { adminContactRoutes } from "../modules/contact/contact.route";
 
 const router = Router();
 
@@ -38,5 +39,7 @@ router.use("/public", publicInvoiceRouter);
 router.use("/dashboard", dashboardRoutes);
 router.use("/dashboard-management", dashboardRoutes);
 router.use("/reports", reportRoutes);
+router.use("/contact", contactRoutes);
+router.use("/admin/contact-messages", adminContactRoutes);
 
 export default router;
