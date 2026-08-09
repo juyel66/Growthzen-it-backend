@@ -21,7 +21,10 @@ export interface ProductCreateInput {
   category?: string;
   costPrice: number;
   customerSellPrice: number;
+  customerSpecialPrice?: number | null;
   resellerPrice: number;
+  resellerSellPrice?: number | null;
+  resellerSpecialPrice?: number | null;
   salePrice?: number | null;
   discountType?: DiscountType | null;
   discountValue?: number | null;
@@ -67,13 +70,19 @@ export interface ProductView {
   category: string;
   categoryDetails?: ProductCategoryDetails | null;
   costPrice?: number;
-  customerSellPrice: number;
+  customerSellPrice?: number;
+  customerSpecialPrice?: number | null;
+  displayPrice: number;
   originalPrice: number;
   categoryDiscount: number;
   discountAmount: number;
   finalPrice: number;
   resellerPrice?: number;
-  salePrice: number | null;
+  resellerSellPrice?: number;
+  resellerSpecialPrice?: number | null;
+  specialPrice?: number | null;
+  hasSpecialPrice?: boolean;
+  salePrice?: number | null;
   discountType: DiscountType | null;
   discountValue: number | null;
   taxRate: number | null;
@@ -100,6 +109,31 @@ export interface ProductView {
 }
 
 export type ProductViewerRole = Role | undefined;
+
+export interface GetProductsQueryParams {
+  page?: number | string;
+  limit?: number | string;
+  search?: string;
+  category?: string;
+  categoryId?: string;
+  status?: ProductStatus;
+  isFeatured?: boolean | string;
+  isNewest?: boolean | string;
+  minPrice?: number | string;
+  maxPrice?: number | string;
+  sortBy?: "createdAt" | "price" | "title" | "newest" | "featured" | string;
+  sortOrder?: "asc" | "desc";
+}
+
+export interface PaginatedProductsResponse {
+  data: ProductView[];
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPage: number;
+  };
+}
 
 export const PRODUCT_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"] as const;
 export type ProductSize = (typeof PRODUCT_SIZES)[number];
