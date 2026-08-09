@@ -187,6 +187,7 @@ const mapProduct = (product: ProductRecord, viewerRole?: Role): ProductView => {
     productImages,
     productVideos,
     status: product.status,
+    stock: product.status === "ACTIVE" ? 100 : 0,
     isFeatured: product.isFeatured,
     specialSaleEnabled: product.specialSaleEnabled ?? false,
     discountEnabled: product.discountEnabled ?? false,
@@ -542,6 +543,7 @@ export const getBestSellers = async (
     ];
   }
 
+  // Aggregate total quantity sold per product from DELIVERED orders
   const topSales = await prismaClient.orderItem.groupBy({
     by: ["productId"],
     where: {
@@ -552,44 +554,56 @@ export const getBestSellers = async (
     orderBy: {
       _sum: { quantity: "desc" },
     },
-    take: limit * 2,
   });
 
-  const topProductIds = topSales.map((item) => item.productId).filter(Boolean);
+  const soldProductIds = topSales.map((item) => item.productId).filter(Boolean);
+  let rankedProductIds: string[] = [...soldProductIds];
 
-  let products = await prismaClient.product.findMany({
-    where: {
-      id: { in: topProductIds },
-      status: "ACTIVE",
-    },
-    include: productInclude,
-  });
-
-  const productMap = new Map(products.map((p) => [p.id, p]));
-  let rankedProducts = topProductIds
-    .map((id) => productMap.get(id))
-    .filter((p): p is ProductRecord => p !== undefined);
-
-  if (rankedProducts.length < limit) {
-    const existingIdsSet = new Set(rankedProducts.map((p) => p.id));
+  // If fewer sold products exist than requested limit, append fallback unsold active products
+  if (rankedProductIds.length < limit) {
+    const existingIdsSet = new Set(rankedProductIds);
     const fallbackProducts = await prismaClient.product.findMany({
       where: {
         status: "ACTIVE",
         id: { notIn: Array.from(existingIdsSet) },
         ...productFilter,
       },
+      select: { id: true },
       orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
-      take: limit - rankedProducts.length,
-      include: productInclude,
+      take: limit - rankedProductIds.length,
     });
-    rankedProducts = [...rankedProducts, ...fallbackProducts];
+    rankedProductIds = [...rankedProductIds, ...fallbackProducts.map((p) => p.id)];
   }
 
-  const paginatedList = rankedProducts.slice(skip, skip + limit);
-  const total = rankedProducts.length;
+  const total = rankedProductIds.length;
+  const pageProductIds = rankedProductIds.slice(skip, skip + limit);
+
+  if (pageProductIds.length === 0) {
+    return {
+      data: [],
+      meta: {
+        page,
+        limit,
+        total,
+        totalPage: Math.ceil(total / limit) || 1,
+      },
+    };
+  }
+
+  const products = await prismaClient.product.findMany({
+    where: {
+      id: { in: pageProductIds },
+    },
+    include: productInclude,
+  });
+
+  const productMap = new Map(products.map((p) => [p.id, p]));
+  const orderedProducts = pageProductIds
+    .map((id) => productMap.get(id))
+    .filter((p): p is ProductRecord => p !== undefined);
 
   return {
-    data: paginatedList.map((p) => mapProduct(p, viewerRole)),
+    data: orderedProducts.map((p) => mapProduct(p, viewerRole)),
     meta: {
       page,
       limit,
@@ -612,8 +626,6 @@ export const getOffers = async (
   const offerCondition: Prisma.ProductWhereInput[] = isReseller
     ? [
         { resellerSpecialPrice: { gt: 0 } },
-        { AND: [{ discountEnabled: true }, { discountValue: { gt: 0 } }] },
-        { categoryRel: { is: { discountEnabled: true, discountPercentage: { gt: 0 } } } },
       ]
     : [
         { customerSpecialPrice: { gt: 0 } },
@@ -631,12 +643,21 @@ export const getOffers = async (
     where.categoryId = params.categoryId.trim();
   } else if (params?.category && params.category.trim()) {
     const catTerm = params.category.trim();
-    where.category = { equals: catTerm, mode: "insensitive" };
+    where.OR = [
+      { category: { equals: catTerm, mode: "insensitive" } },
+      { categoryRel: { is: { slug: { equals: catTerm, mode: "insensitive" } } } },
+      { categoryRel: { is: { name: { equals: catTerm, mode: "insensitive" } } } },
+    ];
   }
 
   if (params?.search && params.search.trim()) {
     const searchTerm = params.search.trim();
-    where.title = { contains: searchTerm, mode: "insensitive" };
+    where.OR = [
+      ...(where.OR || []),
+      { title: { contains: searchTerm, mode: "insensitive" } },
+      { shortDescription: { contains: searchTerm, mode: "insensitive" } },
+      { productCode: { contains: searchTerm, mode: "insensitive" } },
+    ];
   }
 
   const [rawProducts, totalCount] = await Promise.all([
