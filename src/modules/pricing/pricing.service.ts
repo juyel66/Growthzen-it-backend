@@ -66,20 +66,22 @@ export const calculateFinalPrice = (
 ): CalculatedPrice => {
   const isReseller = viewerRole === "RESELLER";
   if (isReseller) {
+    const normalResellerPrice = product.resellerSellPrice ?? product.resellerPrice ?? 0;
     const resSpec = product.resellerSpecialPrice;
-    const resellerBase = (typeof resSpec === "number" && resSpec > 0)
-      ? resSpec
-      : (product.resellerSellPrice ?? product.resellerPrice ?? 0);
-    const rounded = roundMoney(resellerBase);
+    const hasResSpec = typeof resSpec === "number" && resSpec > 0 && resSpec < normalResellerPrice;
+    const finalResellerPrice = hasResSpec ? resSpec! : normalResellerPrice;
+    const roundedOriginal = roundMoney(normalResellerPrice);
+    const roundedFinal = roundMoney(finalResellerPrice);
+    const discountAmt = roundMoney(Math.max(0, roundedOriginal - roundedFinal));
     return {
-      basePrice: rounded,
-      originalPrice: rounded,
-      sellingPrice: rounded,
-      finalPrice: rounded,
-      discountAmount: 0,
-      discount: 0,
+      basePrice: roundedOriginal,
+      originalPrice: roundedOriginal,
+      sellingPrice: roundedFinal,
+      finalPrice: roundedFinal,
+      discountAmount: discountAmt,
+      discount: discountAmt,
       categoryDiscount: 0,
-      ruleApplied: "REGULAR",
+      ruleApplied: hasResSpec ? "SALE_PRICE" : "REGULAR",
     };
   }
 
