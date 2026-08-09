@@ -17,6 +17,7 @@ export interface UpdateUserRoleInput {
 export interface UserStatsView {
   totalUsers: number;
   totalCustomers: number;
+  totalResellers: number;
   totalAdmins: number;
   totalSuperAdmins: number;
   newUsersToday: number;
