@@ -11,9 +11,9 @@ import {
   toRelativePath,
 } from "../../utils/imageUrl";
 import { deleteFileFromStorage } from "../../services/storage.service";
-import type { ProductAttribute, ProductCreateInput, ProductUpdateInput, ProductView } from "./products.interface";
+import type { GetProductsQueryParams, PaginatedProductsResponse, ProductAttribute, ProductCreateInput, ProductUpdateInput, ProductView } from "./products.interface";
 import { normalizeProductCategory } from "./products.category";
-import { calculateFinalPrice } from "../pricing/pricing.service";
+import { calculateFinalPrice, getDisplayPrice } from "../pricing/pricing.service";
 
 const productInclude = {
   createdBy: { select: { name: true, email: true } },
@@ -115,6 +115,43 @@ const mapProduct = (product: ProductRecord, viewerRole?: Role): ProductView => {
     responseProductVideos: productVideos,
   });
 
+  const resellerPriceVal = product.resellerSellPrice ?? product.resellerPrice;
+  const resellerSpecVal = product.resellerSpecialPrice ?? null;
+  const custSpecVal = product.customerSpecialPrice ?? (product.salePrice && product.specialSaleEnabled ? product.salePrice : null);
+
+  const displayPrice = getDisplayPrice(product, viewerRole);
+
+  const rolePricing = isReseller
+    ? {
+      displayPrice,
+      specialPrice: resellerSpecVal,
+      hasSpecialPrice: Boolean(resellerSpecVal && resellerSpecVal > 0),
+      resellerPrice: resellerPriceVal,
+      resellerSellPrice: resellerPriceVal,
+      resellerSpecialPrice: resellerSpecVal,
+    }
+    : isAdmin
+      ? {
+        costPrice: product.costPrice,
+        customerSellPrice: product.customerSellPrice,
+        customerSpecialPrice: custSpecVal,
+        displayPrice,
+        specialPrice: custSpecVal,
+        hasSpecialPrice: Boolean(custSpecVal && custSpecVal > 0),
+        resellerPrice: resellerPriceVal,
+        resellerSellPrice: resellerPriceVal,
+        resellerSpecialPrice: resellerSpecVal,
+        salePrice: custSpecVal,
+      }
+      : {
+        customerSellPrice: product.customerSellPrice,
+        customerSpecialPrice: custSpecVal,
+        displayPrice,
+        specialPrice: custSpecVal,
+        hasSpecialPrice: Boolean(custSpecVal && custSpecVal > 0),
+        salePrice: custSpecVal,
+      };
+
   return {
     id: product.id,
     title: product.title,
@@ -127,21 +164,18 @@ const mapProduct = (product: ProductRecord, viewerRole?: Role): ProductView => {
     category: product.categoryRel?.name ?? product.category ?? "",
     categoryDetails: product.categoryRel
       ? {
-          id: product.categoryRel.id,
-          name: product.categoryRel.name,
-          slug: product.categoryRel.slug,
-          discountPercentage: product.categoryRel.discountPercentage,
-          discountEnabled: product.categoryRel.discountEnabled,
-        }
+        id: product.categoryRel.id,
+        name: product.categoryRel.name,
+        slug: product.categoryRel.slug,
+        discountPercentage: product.categoryRel.discountPercentage,
+        discountEnabled: product.categoryRel.discountEnabled,
+      }
       : null,
-    ...(isAdmin ? { costPrice: product.costPrice } : {}),
-    customerSellPrice: product.customerSellPrice,
+    ...rolePricing,
     originalPrice: price.originalPrice,
     categoryDiscount: price.categoryDiscount,
     discountAmount: price.discountAmount,
     finalPrice: price.finalPrice,
-    ...(isAdmin || isReseller ? { resellerPrice: product.resellerPrice } : {}),
-    salePrice: product.salePrice,
     discountType: product.discountType,
     discountValue: product.discountValue,
     taxRate: product.taxRate,
@@ -310,8 +344,10 @@ const toCreateData = (
   finalProductCode: string,
   finalBarcode: string
 ): Prisma.ProductCreateInput => {
-  const specialSaleEnabled = payload.specialSaleEnabled ?? false;
-  const discountEnabled = payload.discountEnabled ?? false;
+  const resellerSellPrice = payload.resellerSellPrice ?? payload.resellerPrice;
+  const custSpecial = payload.customerSpecialPrice && payload.customerSpecialPrice > 0 ? payload.customerSpecialPrice : (payload.specialSaleEnabled && payload.salePrice ? payload.salePrice : null);
+  const resSpecial = payload.resellerSpecialPrice && payload.resellerSpecialPrice > 0 ? payload.resellerSpecialPrice : null;
+
   return {
     title: payload.title,
     shortDescription: payload.shortDescription,
@@ -323,10 +359,13 @@ const toCreateData = (
     categoryRel: { connect: { id: resolvedCategory.categoryId } },
     costPrice: payload.costPrice,
     customerSellPrice: payload.customerSellPrice,
-    resellerPrice: payload.resellerPrice,
-    specialSaleEnabled,
-    discountEnabled,
-    salePrice: specialSaleEnabled ? (payload.salePrice ?? null) : null,
+    customerSpecialPrice: custSpecial,
+    resellerPrice: resellerSellPrice,
+    resellerSellPrice: resellerSellPrice,
+    resellerSpecialPrice: resSpecial,
+    specialSaleEnabled: Boolean(custSpecial && custSpecial > 0),
+    discountEnabled: payload.discountEnabled ?? false,
+    salePrice: custSpecial,
     discountType: payload.discountType ?? null,
     discountValue: payload.discountValue ?? null,
     taxRate: payload.taxRate ?? null,
@@ -376,14 +415,274 @@ export const createProduct = async (payload: ProductCreateInput, createdById: st
   return mapProduct(product, "ADMIN");
 };
 
-export const getProducts = async (viewerRole?: Role): Promise<ProductView[]> => {
-  const products = await prismaClient.product.findMany({ orderBy: { createdAt: "desc" }, include: productInclude });
-  return products.map((product) => mapProduct(product, viewerRole));
+export const getProducts = async (
+  params?: GetProductsQueryParams,
+  viewerRole?: Role
+): Promise<PaginatedProductsResponse> => {
+  const page = Math.max(1, Number(params?.page) || 1);
+  const limit = Math.max(1, Math.min(100, Number(params?.limit) || 20));
+  const skip = (page - 1) * limit;
+
+  const isAdmin = viewerRole === "ADMIN" || viewerRole === "SUPER_ADMIN";
+  const where: Prisma.ProductWhereInput = {};
+
+  if (!isAdmin) {
+    where.status = "ACTIVE";
+  } else if (params?.status) {
+    where.status = params.status;
+  }
+
+  if (params?.search && params.search.trim()) {
+    const searchTerm = params.search.trim();
+    where.OR = [
+      { title: { contains: searchTerm, mode: "insensitive" } },
+      { shortDescription: { contains: searchTerm, mode: "insensitive" } },
+      { description: { contains: searchTerm, mode: "insensitive" } },
+      { productCode: { contains: searchTerm, mode: "insensitive" } },
+      { category: { contains: searchTerm, mode: "insensitive" } },
+    ];
+  }
+
+  if (params?.categoryId && params.categoryId.trim()) {
+    where.categoryId = params.categoryId.trim();
+  } else if (params?.category && params.category.trim()) {
+    const catTerm = params.category.trim();
+    where.OR = [
+      ...(where.OR || []),
+      { category: { equals: catTerm, mode: "insensitive" } },
+      { categoryRel: { is: { slug: { equals: catTerm, mode: "insensitive" } } } },
+      { categoryRel: { is: { name: { equals: catTerm, mode: "insensitive" } } } },
+    ];
+  }
+
+  if (params?.isFeatured !== undefined && params.isFeatured !== null && params.isFeatured !== "") {
+    const isFeat = String(params.isFeatured).toLowerCase() === "true" || params.isFeatured === true;
+    where.isFeatured = isFeat;
+  }
+
+  const minPrice = params?.minPrice ? Number(params.minPrice) : undefined;
+  const maxPrice = params?.maxPrice ? Number(params.maxPrice) : undefined;
+
+  if (minPrice !== undefined || maxPrice !== undefined) {
+    const priceField = viewerRole === "RESELLER" ? "resellerPrice" : "customerSellPrice";
+    where[priceField] = {
+      ...(minPrice !== undefined ? { gte: minPrice } : {}),
+      ...(maxPrice !== undefined ? { lte: maxPrice } : {}),
+    };
+  }
+
+  let orderBy: Prisma.ProductOrderByWithRelationInput[] = [{ createdAt: "desc" }];
+  const sortOrder: Prisma.SortOrder = params?.sortOrder === "asc" ? "asc" : "desc";
+  const sortBy = params?.sortBy?.toLowerCase();
+
+  if (sortBy === "price" || sortBy === "price_asc" || sortBy === "price_desc") {
+    const priceField = viewerRole === "RESELLER" ? "resellerPrice" : "customerSellPrice";
+    const dir = sortBy === "price_asc" ? "asc" : sortBy === "price_desc" ? "desc" : sortOrder;
+    orderBy = [{ [priceField]: dir }];
+  } else if (sortBy === "title" || sortBy === "name") {
+    orderBy = [{ title: sortOrder }];
+  } else if (sortBy === "featured" || sortBy === "isfeatured") {
+    orderBy = [{ isFeatured: "desc" }, { createdAt: "desc" }];
+  } else if (sortBy === "newest" || sortBy === "createdat" || params?.isNewest) {
+    orderBy = [{ createdAt: sortOrder }];
+  }
+
+  const [products, total] = await Promise.all([
+    prismaClient.product.findMany({
+      where,
+      orderBy,
+      skip,
+      take: limit,
+      include: productInclude,
+    }),
+    prismaClient.product.count({ where }),
+  ]);
+
+  const mappedData = products.map((product) => mapProduct(product, viewerRole));
+
+  return {
+    data: mappedData,
+    meta: {
+      page,
+      limit,
+      total,
+      totalPage: Math.ceil(total / limit) || 1,
+    },
+  };
 };
 
-export const getProductById = async (id: string, viewerRole?: Role): Promise<ProductView> => {
-  const product = await prismaClient.product.findUnique({ where: { id }, include: productInclude });
+export const getBestSellers = async (
+  params?: GetProductsQueryParams,
+  viewerRole?: Role
+): Promise<PaginatedProductsResponse> => {
+  const page = Math.max(1, Number(params?.page) || 1);
+  const limit = Math.max(1, Math.min(100, Number(params?.limit) || 12));
+  const skip = (page - 1) * limit;
+
+  const productFilter: Prisma.ProductWhereInput = { status: "ACTIVE" };
+
+  if (params?.categoryId && params.categoryId.trim()) {
+    productFilter.categoryId = params.categoryId.trim();
+  } else if (params?.category && params.category.trim()) {
+    const catTerm = params.category.trim();
+    productFilter.OR = [
+      { category: { equals: catTerm, mode: "insensitive" } },
+      { categoryRel: { is: { slug: { equals: catTerm, mode: "insensitive" } } } },
+      { categoryRel: { is: { name: { equals: catTerm, mode: "insensitive" } } } },
+    ];
+  }
+
+  if (params?.search && params.search.trim()) {
+    const searchTerm = params.search.trim();
+    productFilter.OR = [
+      ...(productFilter.OR || []),
+      { title: { contains: searchTerm, mode: "insensitive" } },
+      { shortDescription: { contains: searchTerm, mode: "insensitive" } },
+      { productCode: { contains: searchTerm, mode: "insensitive" } },
+    ];
+  }
+
+  const topSales = await prismaClient.orderItem.groupBy({
+    by: ["productId"],
+    where: {
+      order: { status: "DELIVERED" },
+      product: productFilter,
+    },
+    _sum: { quantity: true },
+    orderBy: {
+      _sum: { quantity: "desc" },
+    },
+    take: limit * 2,
+  });
+
+  const topProductIds = topSales.map((item) => item.productId).filter(Boolean);
+
+  let products = await prismaClient.product.findMany({
+    where: {
+      id: { in: topProductIds },
+      status: "ACTIVE",
+    },
+    include: productInclude,
+  });
+
+  const productMap = new Map(products.map((p) => [p.id, p]));
+  let rankedProducts = topProductIds
+    .map((id) => productMap.get(id))
+    .filter((p): p is ProductRecord => p !== undefined);
+
+  if (rankedProducts.length < limit) {
+    const existingIdsSet = new Set(rankedProducts.map((p) => p.id));
+    const fallbackProducts = await prismaClient.product.findMany({
+      where: {
+        status: "ACTIVE",
+        id: { notIn: Array.from(existingIdsSet) },
+        ...productFilter,
+      },
+      orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
+      take: limit - rankedProducts.length,
+      include: productInclude,
+    });
+    rankedProducts = [...rankedProducts, ...fallbackProducts];
+  }
+
+  const paginatedList = rankedProducts.slice(skip, skip + limit);
+  const total = rankedProducts.length;
+
+  return {
+    data: paginatedList.map((p) => mapProduct(p, viewerRole)),
+    meta: {
+      page,
+      limit,
+      total,
+      totalPage: Math.ceil(total / limit) || 1,
+    },
+  };
+};
+
+export const getOffers = async (
+  params?: GetProductsQueryParams,
+  viewerRole?: Role
+): Promise<PaginatedProductsResponse> => {
+  const page = Math.max(1, Number(params?.page) || 1);
+  const limit = Math.max(1, Math.min(100, Number(params?.limit) || 12));
+  const skip = (page - 1) * limit;
+
+  const isReseller = viewerRole === "RESELLER";
+
+  const offerCondition: Prisma.ProductWhereInput[] = isReseller
+    ? [
+        { resellerSpecialPrice: { gt: 0 } },
+        { AND: [{ discountEnabled: true }, { discountValue: { gt: 0 } }] },
+        { categoryRel: { is: { discountEnabled: true, discountPercentage: { gt: 0 } } } },
+      ]
+    : [
+        { customerSpecialPrice: { gt: 0 } },
+        { AND: [{ specialSaleEnabled: true }, { salePrice: { gt: 0 } }] },
+        { AND: [{ discountEnabled: true }, { discountValue: { gt: 0 } }] },
+        { categoryRel: { is: { discountEnabled: true, discountPercentage: { gt: 0 } } } },
+      ];
+
+  const where: Prisma.ProductWhereInput = {
+    status: "ACTIVE",
+    OR: offerCondition,
+  };
+
+  if (params?.categoryId && params.categoryId.trim()) {
+    where.categoryId = params.categoryId.trim();
+  } else if (params?.category && params.category.trim()) {
+    const catTerm = params.category.trim();
+    where.category = { equals: catTerm, mode: "insensitive" };
+  }
+
+  if (params?.search && params.search.trim()) {
+    const searchTerm = params.search.trim();
+    where.title = { contains: searchTerm, mode: "insensitive" };
+  }
+
+  const [rawProducts, totalCount] = await Promise.all([
+    prismaClient.product.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      include: productInclude,
+    }),
+    prismaClient.product.count({ where }),
+  ]);
+
+  const mappedList = rawProducts
+    .map((p) => mapProduct(p, viewerRole))
+    .filter((p) => Boolean(p.hasSpecialPrice || p.discountAmount > 0 || p.categoryDiscount > 0));
+
+  return {
+    data: mappedList,
+    meta: {
+      page,
+      limit,
+      total: totalCount,
+      totalPage: Math.ceil(totalCount / limit) || 1,
+    },
+  };
+};
+
+export const getProductById = async (idOrSlug: string, viewerRole?: Role): Promise<ProductView> => {
+  const product = await prismaClient.product.findFirst({
+    where: {
+      OR: [
+        { id: idOrSlug },
+        { slug: idOrSlug },
+      ],
+    },
+    include: productInclude,
+  });
+
   if (!product) throw new AppError(404, "Product not found");
+
+  const isAdmin = viewerRole === "ADMIN" || viewerRole === "SUPER_ADMIN";
+  if (!isAdmin && product.status !== "ACTIVE") {
+    throw new AppError(404, "Product is not available");
+  }
+
   return mapProduct(product, viewerRole);
 };
 
@@ -452,8 +751,13 @@ export const updateProduct = async (id: string, payload: ProductUpdateInput): Pr
     }
   }
 
+  const resellerVal = fields.resellerSellPrice ?? fields.resellerPrice;
+  const custSpecVal = fields.customerSpecialPrice !== undefined ? fields.customerSpecialPrice : fields.salePrice;
+
   const data: Prisma.ProductUpdateInput = {
     ...fields,
+    ...(resellerVal !== undefined ? { resellerPrice: resellerVal, resellerSellPrice: resellerVal } : {}),
+    ...(custSpecVal !== undefined ? { customerSpecialPrice: custSpecVal, salePrice: custSpecVal, specialSaleEnabled: Boolean(custSpecVal && custSpecVal > 0) } : {}),
     ...(nextThumbnailImage !== undefined ? { thumbnailImage: nextThumbnailImage } : {}),
     ...(nextProductImages !== undefined ? { productImages: nextProductImages } : {}),
     ...(nextProductVideos !== undefined ? { productVideos: nextProductVideos } : {}),
