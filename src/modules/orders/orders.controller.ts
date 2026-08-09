@@ -2,7 +2,8 @@ import type { Request, Response } from "express";
 import AppError from "../../utils/AppError";
 import catchAsync from "../../utils/catchAsync";
 import sendResponse from "../../utils/sendResponse";
-import { cancelOrder, cancelMyOrder, createOrder, getMyOrders, getOrderById, getOrderInvoice, getOrders, getOrderSummary, updateOrderStatus, trackOrder } from "./orders.service";
+import { cancelOrder, cancelMyOrder, createOrder, getMyOrders, getMyOrderSummary, getOrderById, getOrderInvoice, getOrders, getOrderSummary, updateOrderStatus, trackOrder } from "./orders.service";
+
 
 const getParamId = (value: string | string[]): string => (Array.isArray(value) ? value[0] : value);
 
@@ -63,6 +64,7 @@ export const getMyOrdersHandler = catchAsync(async (req: Request, res: Response)
   const orders = await getMyOrders({
     id: currentUser.id,
     role: currentUser.role,
+    email: currentUser.email,
   });
 
   sendResponse(res, {
@@ -70,6 +72,26 @@ export const getMyOrdersHandler = catchAsync(async (req: Request, res: Response)
     data: orders,
   });
 });
+
+export const getMyOrderSummaryHandler = catchAsync(async (req: Request, res: Response) => {
+  const currentUser = req.user;
+
+  if (!currentUser) {
+    throw new AppError(401, "User is not authenticated");
+  }
+
+  const summary = await getMyOrderSummary({
+    id: currentUser.id,
+    role: currentUser.role,
+    email: currentUser.email,
+  });
+
+  sendResponse(res, {
+    message: "My order summary retrieved successfully",
+    data: summary,
+  });
+});
+
 
 export const getOrderByIdHandler = catchAsync(async (req: Request, res: Response) => {
   const currentUser = req.user;
