@@ -8,6 +8,8 @@ export interface OrderProductInput {
 
 export interface CreateOrderInput {
   products: OrderProductInput[];
+  userId?: string | null;
+  customerId?: string | null;
   customerName?: string;
   customerPhone?: string;
   customerEmail?: string | null;
@@ -178,10 +180,16 @@ export interface OrderInvoiceView {
   orderDate: string;
   paymentMethod: string;
   paymentStatus: string;
+  role?: string;
+  customerRole?: string;
+  userRole?: string;
   customer: {
     name: string;
     phone: string;
     email: string;
+    role?: string;
+    customerRole?: string;
+    userRole?: string;
   };
   shipping: {
     address: string;
@@ -195,8 +203,8 @@ export interface OrderInvoiceView {
   discount: number;
   deliveryCharge: number;
   grandTotal: number;
-  productCost: number;
-  courierCost: number;
-  courierProfit: number;
-  netProfit: number;
+  productCost?: number | null;
+  courierCost?: number | null;
+  courierProfit?: number | null;
+  netProfit?: number | null;
 }
