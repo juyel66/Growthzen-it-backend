@@ -8,8 +8,13 @@ const getParamId = (value: string | string[]): string => {
   return Array.isArray(value) ? value[0] : value;
 };
 
-export const getUserStatsHandler = catchAsync(async (_req: Request, res: Response) => {
-  const stats = await getUserStats();
+export const getUserStatsHandler = catchAsync(async (req: Request, res: Response) => {
+  const currentUserRole = req.user?.role;
+  if (!currentUserRole) {
+    throw new AppError(401, "User is not authenticated");
+  }
+
+  const stats = await getUserStats(currentUserRole);
 
   sendResponse(res, {
     message: "User statistics retrieved successfully",
@@ -17,8 +22,13 @@ export const getUserStatsHandler = catchAsync(async (_req: Request, res: Respons
   });
 });
 
-export const listUsers = catchAsync(async (_req: Request, res: Response) => {
-  const users = await getUsers();
+export const listUsers = catchAsync(async (req: Request, res: Response) => {
+  const currentUserRole = req.user?.role;
+  if (!currentUserRole) {
+    throw new AppError(401, "User is not authenticated");
+  }
+
+  const users = await getUsers(currentUserRole);
 
   sendResponse(res, {
     message: "Users retrieved successfully",
@@ -27,21 +37,6 @@ export const listUsers = catchAsync(async (_req: Request, res: Response) => {
 });
 
 export const getUserDetails = catchAsync(async (req: Request, res: Response) => {
-  const userId = getParamId(req.params.id);
-
-  if (!userId) {
-    throw new AppError(400, "User id is required");
-  }
-
-  const user = await getUserById(userId);
-
-  sendResponse(res, {
-    message: "User retrieved successfully",
-    data: user,
-  });
-});
-
-export const changeUserRole = catchAsync(async (req: Request, res: Response) => {
   const currentUserRole = req.user?.role;
   const userId = getParamId(req.params.id);
 
@@ -53,7 +48,28 @@ export const changeUserRole = catchAsync(async (req: Request, res: Response) => 
     throw new AppError(400, "User id is required");
   }
 
-  const user = await updateUserRole(currentUserRole, userId, req.body);
+  const user = await getUserById(currentUserRole, userId);
+
+  sendResponse(res, {
+    message: "User retrieved successfully",
+    data: user,
+  });
+});
+
+export const changeUserRole = catchAsync(async (req: Request, res: Response) => {
+  const currentUserId = req.user?.id;
+  const currentUserRole = req.user?.role;
+  const userId = getParamId(req.params.id);
+
+  if (!currentUserId || !currentUserRole) {
+    throw new AppError(401, "User is not authenticated");
+  }
+
+  if (!userId) {
+    throw new AppError(400, "User id is required");
+  }
+
+  const user = await updateUserRole(currentUserId, currentUserRole, userId, req.body);
 
   sendResponse(res, {
     message: "User role updated successfully",
