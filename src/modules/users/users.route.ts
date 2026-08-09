@@ -6,7 +6,7 @@ import { updateUserRoleValidationSchema } from "./users.validation";
 
 const router = Router();
 
-router.use(authenticate, authorizeRoles("ADMIN", "SUPER_ADMIN"));
+router.use(authenticate, authorizeRoles("ADMIN", "SUPER_ADMIN", "You do not have permission to access User Management."));
 
 /**
  * @swagger
