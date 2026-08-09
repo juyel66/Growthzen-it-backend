@@ -159,7 +159,7 @@ const options: swaggerJsdoc.Options = {
         },
         CommerceProduct: {
           type: "object",
-          required: ["id", "title", "slug", "thumbnailImage", "productCode", "shortDescription", "customerSellPrice", "salePrice", "status"],
+          required: ["id", "title", "slug", "thumbnailImage", "productCode", "shortDescription", "customerSellPrice", "displayPrice", "salePrice", "status"],
           properties: {
             id: { type: "string" },
             title: { type: "string" },
@@ -168,11 +168,12 @@ const options: swaggerJsdoc.Options = {
             productCode: { type: "string" },
             shortDescription: { type: "string" },
             customerSellPrice: { type: "number" },
+            displayPrice: { type: "number" },
             salePrice: { type: "number", nullable: true },
-            resellerPrice: { type: "number", description: "Only included for reseller/admin roles" },
+            resellerPrice: { type: "number" },
             status: { type: "string", enum: ["DRAFT", "ACTIVE", "INACTIVE", "ARCHIVED"] },
           },
-          example: { id: "cmproduct123", title: "Wireless Mouse", slug: "wireless-mouse", thumbnailImage: "/uploads/products/thumbnails/mouse.webp", productCode: "MOUSE-001", shortDescription: "Ergonomic wireless mouse for daily use.", customerSellPrice: 1500, salePrice: 1350, resellerPrice: 1200, status: "ACTIVE" },
+          example: { id: "cmproduct123", title: "Wireless Mouse", slug: "wireless-mouse", thumbnailImage: "/uploads/products/thumbnails/mouse.webp", productCode: "MOUSE-001", shortDescription: "Ergonomic wireless mouse for daily use.", customerSellPrice: 1500, displayPrice: 1200, salePrice: 1350, resellerPrice: 1200, status: "ACTIVE" },
         },
         CartItem: {
           type: "object",
@@ -320,7 +321,7 @@ const options: swaggerJsdoc.Options = {
         },
         ProductResponse: {
           type: "object",
-          required: ["id", "title", "shortDescription", "description", "slug", "productCode", "barcode", "category", "customerSellPrice", "salePrice", "discountType", "discountValue", "taxRate", "couponCode", "attributes", "enableSize", "availableSizes", "thumbnailImage", "productImages", "productVideos", "status", "isFeatured", "averageRating", "reviewCount", "ratingBreakdown", "latestReviews", "createdAt", "updatedAt"],
+          required: ["id", "title", "shortDescription", "description", "slug", "productCode", "barcode", "category", "customerSellPrice", "displayPrice", "salePrice", "discountType", "discountValue", "taxRate", "couponCode", "attributes", "enableSize", "availableSizes", "thumbnailImage", "productImages", "productVideos", "status", "isFeatured", "averageRating", "reviewCount", "ratingBreakdown", "latestReviews", "createdAt", "updatedAt"],
           properties: {
             id: { type: "string" },
             title: { type: "string" },
@@ -332,7 +333,11 @@ const options: swaggerJsdoc.Options = {
             category: { type: "string" },
             costPrice: { type: "number", description: "Admin-only internal field" },
             customerSellPrice: { type: "number" },
-            resellerPrice: { type: "number", description: "Returned only to reseller/admin users" },
+            customerSpecialPrice: { type: "number", nullable: true },
+            displayPrice: { type: "number" },
+            resellerPrice: { type: "number" },
+            resellerSellPrice: { type: "number" },
+            resellerSpecialPrice: { type: "number", nullable: true },
             salePrice: { type: "number", nullable: true },
             discountType: { type: "string", enum: ["PERCENTAGE", "FIXED"], nullable: true },
             discountValue: { type: "number", nullable: true },
