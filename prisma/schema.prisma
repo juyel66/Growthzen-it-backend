@@ -68,6 +68,8 @@ model Product {
   couponProducts    CouponProduct[]
 
   @@index([categoryId])
+  @@index([status])
+  @@index([status, createdAt])
 }
 
 model Category {
