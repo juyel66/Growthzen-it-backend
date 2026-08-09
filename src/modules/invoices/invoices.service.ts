@@ -19,6 +19,46 @@ const getFrontendBaseUrl = (): string => {
   return process.env.CLIENT_URL || process.env.FRONTEND_URL || "https://growthzen.com";
 };
 
+const resolveCustomerRole = (
+  order?: {
+    orderedByRole?: string;
+    user?: { role?: string } | null;
+  } | null,
+  invoiceCustomerRole?: string | null,
+  fallbackRole?: string | null
+): string => {
+  const userRole = order?.user?.role ? String(order.user.role).toUpperCase() : "";
+  const orderedBy = order?.orderedByRole ? String(order.orderedByRole).toUpperCase() : "";
+
+  if (userRole === "RESELLER" || orderedBy === "RESELLER") {
+    return "RESELLER";
+  }
+
+  if (userRole === "CUSTOMER" || orderedBy === "CUSTOMER") {
+    return "CUSTOMER";
+  }
+
+  if (invoiceCustomerRole) {
+    const invRole = String(invoiceCustomerRole).toUpperCase();
+    if (invRole === "RESELLER" || invRole === "CUSTOMER") {
+      return invRole;
+    }
+  }
+
+  if (userRole && userRole !== "ADMIN" && userRole !== "SUPER_ADMIN") {
+    return userRole;
+  }
+
+  if (fallbackRole) {
+    const fb = String(fallbackRole).toUpperCase();
+    if (fb === "RESELLER" || fb === "CUSTOMER") {
+      return fb;
+    }
+  }
+
+  return "CUSTOMER";
+};
+
 const mapFullInvoice = (
   invoice: Prisma.InvoiceGetPayload<object>,
   order?: {
@@ -29,7 +69,10 @@ const mapFullInvoice = (
     deliveryCharge?: number;
     discountAmount?: number;
     subtotal?: number;
-  } | null
+    orderedByRole?: string;
+    user?: { role?: string } | null;
+  } | null,
+  viewerRole?: string
 ): FullInvoiceView => {
   const rawProducts = (invoice.productsJson as unknown as InvoiceProductSnapshot[]) || [];
   const verificationUrl = `${getFrontendBaseUrl()}/invoice/verify/${invoice.verificationToken}`;
@@ -70,6 +113,7 @@ const mapFullInvoice = (
   const customerName = invoice.customerName || "Customer";
   const customerPhone = invoice.customerPhone || "";
   const customerEmail = invoice.customerEmail || "";
+  const customerRole = resolveCustomerRole(order, (invoice as any).customerRole);
   const shippingAddress = invoice.shippingAddress || "";
   const district = invoice.shippingDistrict || "";
   const division = invoice.shippingDivision || "";
@@ -82,6 +126,8 @@ const mapFullInvoice = (
   const deliveryCharge = order?.deliveryCharge ?? invoice.deliveryCharge;
   const discount = order?.discountAmount ?? invoice.discount;
   const subtotal = order?.subtotal ?? invoice.subtotal;
+
+  const isAdminViewer = viewerRole === "ADMIN" || viewerRole === "SUPER_ADMIN";
 
   return {
     invoiceNo: invoice.invoiceNumber,
@@ -100,6 +146,8 @@ const mapFullInvoice = (
     customerName,
     customerPhone,
     customerEmail,
+    customerRole,
+    role: customerRole,
     phone: customerPhone,
     email: customerEmail,
 
@@ -115,6 +163,8 @@ const mapFullInvoice = (
       fullName: customerName,
       phone: customerPhone,
       email: customerEmail,
+      role: customerRole,
+      customerRole,
       customerName,
       customerPhone,
       customerEmail,
@@ -140,18 +190,31 @@ const mapFullInvoice = (
     discount,
     deliveryCharge,
     grandTotal,
-    productCost: invoice.productCost,
-    courierCost: invoice.courierCost,
-    courierProfit: invoice.courierProfit,
-    netProfit: invoice.netProfit,
+    ...(isAdminViewer ? {
+      productCost: invoice.productCost,
+      courierCost: invoice.courierCost,
+      courierProfit: invoice.courierProfit,
+      netProfit: invoice.netProfit,
+    } : {
+      productCost: null,
+      courierCost: null,
+      courierProfit: null,
+      netProfit: null,
+    }),
   };
 };
 
-export const createOrGetInvoice = async (orderIdOrCode: string): Promise<FullInvoiceView> => {
+export const createOrGetInvoice = async (
+  orderIdOrCode: string,
+  currentUser?: { id: string; role: string }
+): Promise<FullInvoiceView> => {
+  const viewerRole = currentUser?.role;
+
   // 1. Return existing invoice if already generated (repairing productsJson if empty)
   let existingInvoice = await prismaClient.invoice.findFirst({
     where: {
       OR: [
+        { id: orderIdOrCode },
         { orderId: orderIdOrCode },
         { orderNumber: orderIdOrCode },
         { invoiceNumber: orderIdOrCode },
@@ -165,8 +228,15 @@ export const createOrGetInvoice = async (orderIdOrCode: string): Promise<FullInv
       include: {
         payment: { select: { method: true, status: true } },
         items: { include: { product: true } },
+        user: { select: { role: true } },
       },
     });
+
+    if (currentUser && viewerRole !== "ADMIN" && viewerRole !== "SUPER_ADMIN") {
+      if (!liveOrder || liveOrder.userId !== currentUser.id) {
+        throw new AppError(403, "You do not have permission to view this invoice");
+      }
+    }
 
     const jsonItems = (existingInvoice.productsJson as unknown as InvoiceProductSnapshot[]) || [];
     let repairedJson: InvoiceProductSnapshot[] | undefined = undefined;
@@ -191,6 +261,7 @@ export const createOrGetInvoice = async (orderIdOrCode: string): Promise<FullInv
 
     if (liveOrder) {
       const livePaymentStatus = liveOrder.payment?.status || (liveOrder.status === "DELIVERED" ? "PAID" : existingInvoice.paymentStatus);
+      const resolvedCustomerRole = resolveCustomerRole(liveOrder, (existingInvoice as any).customerRole);
       existingInvoice = await prismaClient.invoice.update({
         where: { id: existingInvoice.id },
         data: {
@@ -200,12 +271,13 @@ export const createOrGetInvoice = async (orderIdOrCode: string): Promise<FullInv
           deliveryCharge: liveOrder.deliveryCharge,
           discount: liveOrder.discountAmount,
           subtotal: liveOrder.subtotal,
+          customerRole: resolvedCustomerRole,
           ...(repairedJson ? { productsJson: repairedJson as unknown as Prisma.InputJsonValue } : {}),
         },
       });
     }
 
-    return mapFullInvoice(existingInvoice, liveOrder);
+    return mapFullInvoice(existingInvoice, liveOrder, viewerRole);
   }
 
   // 2. Fetch order to create invoice
@@ -240,11 +312,18 @@ export const createOrGetInvoice = async (orderIdOrCode: string): Promise<FullInv
         },
       },
       payment: { select: { method: true, status: true } },
+      user: { select: { role: true } },
     },
   });
 
   if (!order) {
     throw new AppError(404, "Order not found");
+  }
+
+  if (currentUser && viewerRole !== "ADMIN" && viewerRole !== "SUPER_ADMIN") {
+    if (order.userId !== currentUser.id) {
+      throw new AppError(403, "You do not have permission to view this invoice");
+    }
   }
 
   if (order.status !== "DELIVERED") {
@@ -301,6 +380,8 @@ export const createOrGetInvoice = async (orderIdOrCode: string): Promise<FullInv
     };
   });
 
+  const resolvedCustomerRole = resolveCustomerRole(order);
+
   // 5. Persist permanent invoice in DB with populated productsJson
   const createdInvoice = await prismaClient.invoice.create({
     data: {
@@ -316,6 +397,7 @@ export const createOrGetInvoice = async (orderIdOrCode: string): Promise<FullInv
       customerName,
       customerPhone,
       customerEmail,
+      customerRole: resolvedCustomerRole,
       shippingAddress,
       shippingDistrict,
       shippingDivision,
@@ -333,7 +415,7 @@ export const createOrGetInvoice = async (orderIdOrCode: string): Promise<FullInv
     },
   });
 
-  return mapFullInvoice(createdInvoice);
+  return mapFullInvoice(createdInvoice, order, viewerRole);
 };
 
 export const getPublicInvoiceByToken = async (rawToken: string): Promise<PublicInvoiceVerificationView> => {
@@ -400,13 +482,25 @@ export const getPublicInvoiceByToken = async (rawToken: string): Promise<PublicI
     grandTotal: fullInvoice.grandTotal,
   };
 
+  const customerRole = fullInvoice.customerRole || "CUSTOMER";
+
   return {
     ...fullInvoice,
+    customerRole,
+    userRole: customerRole,
+    role: customerRole,
 
     // Add company & qr metadata
     companyName,
     companyLogo: logo,
     companyWebsite: website,
+
+    customer: {
+      ...fullInvoice.customer,
+      role: customerRole,
+      customerRole,
+      userRole: customerRole,
+    },
 
     company: {
       companyName,
@@ -567,6 +661,7 @@ export const getAllInvoicesService = async (params: GetAllInvoicesParams): Promi
         order: {
           include: {
             payment: { select: { method: true, status: true } },
+            user: { select: { role: true } },
           },
         },
       },
@@ -593,6 +688,7 @@ export const getAllInvoicesService = async (params: GetAllInvoicesParams): Promi
     const livePaymentStatus = inv.order?.payment?.status || (inv.order?.status === "DELIVERED" ? "PAID" : inv.paymentStatus);
     const liveOrderStatus = inv.order?.status || inv.orderStatus;
     const liveGrandTotal = inv.order?.payableAmount ?? inv.grandTotal;
+    const customerRole = resolveCustomerRole(inv.order, (inv as any).customerRole);
 
     return {
       id: inv.id,
@@ -601,6 +697,17 @@ export const getAllInvoicesService = async (params: GetAllInvoicesParams): Promi
       orderNumber: inv.orderNumber,
       customerName: inv.customerName || "Customer",
       customerPhone: inv.customerPhone || "",
+      customerRole,
+      userRole: customerRole,
+      role: customerRole,
+      customer: {
+        name: inv.customerName || "Customer",
+        phone: inv.customerPhone || "",
+        email: inv.customerEmail || "",
+        role: customerRole,
+        customerRole,
+        userRole: customerRole,
+      },
       grandTotal: liveGrandTotal,
       paymentStatus: livePaymentStatus,
       orderStatus: liveOrderStatus,
@@ -633,3 +740,77 @@ export const getAllInvoicesService = async (params: GetAllInvoicesParams): Promi
     data: formattedData,
   };
 };
+
+export const getMyInvoicesService = async (currentUser: { id: string; role: string; email?: string }) => {
+  // Generate invoice records for any delivered orders that don't have one yet
+  const deliveredOrdersWithoutInvoice = await prismaClient.order.findMany({
+    where: {
+      userId: currentUser.id,
+      status: "DELIVERED",
+      invoice: { is: null },
+    },
+    select: { id: true },
+  });
+
+  for (const ord of deliveredOrdersWithoutInvoice) {
+    try {
+      await createOrGetInvoice(ord.id, currentUser);
+    } catch {
+      // Ignore individual generation errors
+    }
+  }
+
+  const invoices = await prismaClient.invoice.findMany({
+    where: {
+      order: {
+        userId: currentUser.id,
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    include: {
+      order: {
+        include: {
+          payment: { select: { method: true, status: true } },
+          user: { select: { role: true } },
+        },
+      },
+    },
+  });
+
+  return invoices.map((inv) => {
+    const orderCode = inv.orderNumber || inv.order?.orderCode || "";
+    const publicInvoiceUrl = `${getFrontendBaseUrl()}/invoice/${orderCode}`;
+    const printInvoiceUrl = `${getFrontendBaseUrl()}/user-dashboard/invoices/${inv.id}`;
+    const customerRole = resolveCustomerRole(inv.order, (inv as any).customerRole, currentUser.role);
+
+    return {
+      id: inv.id,
+      invoiceNumber: inv.invoiceNumber,
+      orderId: inv.orderId,
+      orderNumber: orderCode,
+      customerName: inv.customerName || inv.order?.customerName || "Customer",
+      customerPhone: inv.customerPhone || inv.order?.customerPhone || "",
+      customerRole,
+      userRole: customerRole,
+      role: customerRole,
+      customer: {
+        name: inv.customerName || inv.order?.customerName || "Customer",
+        phone: inv.customerPhone || inv.order?.customerPhone || "",
+        email: inv.customerEmail || inv.order?.customerEmail || "",
+        role: customerRole,
+        customerRole,
+        userRole: customerRole,
+      },
+      grandTotal: inv.grandTotal || inv.order?.payableAmount || 0,
+      paymentStatus: inv.paymentStatus || inv.order?.payment?.status || "PAID",
+      orderStatus: inv.orderStatus || inv.order?.status || "DELIVERED",
+      invoiceDate: inv.invoiceDate.toISOString(),
+      createdAt: inv.createdAt.toISOString(),
+      publicInvoiceUrl,
+      printInvoiceUrl,
+      verificationToken: inv.verificationToken,
+    };
+  });
+};
+
+
