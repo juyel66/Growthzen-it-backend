@@ -36,7 +36,10 @@ model Product {
   categoryId        String?
   costPrice         Float
   customerSellPrice Float
+  customerSpecialPrice Float?
   resellerPrice     Float
+  resellerSellPrice Float?
+  resellerSpecialPrice Float?
   salePrice         Float?
   discountType      DiscountType?
   discountValue     Float?
