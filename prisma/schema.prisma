@@ -373,6 +373,7 @@ model Invoice {
   customerName      String?
   customerPhone     String?
   customerEmail     String?
+  customerRole      String?
 
   // Shipping snapshot
   shippingAddress   String?
