@@ -10,6 +10,8 @@ import {
   getOffersHandler,
   getProductByIdHandler,
   getProductsHandler,
+  getSearchSuggestionsHandler,
+  searchProductsHandler,
   updateProductHandler,
 } from "./products.controller";
 import {
@@ -32,6 +34,43 @@ const router = Router();
  *         description: Products retrieved successfully
  */
 router.get("/", optionalAuthenticate, getProductsHandler);
+
+/**
+ * @swagger
+ * /products/search:
+ *   get:
+ *     summary: Search active products with role-based pricing and multi-field filtering
+ *     tags: [Products]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: query, name: q, schema: { type: string }, description: "Search query (title, SKU, category, brand, attributes, description)" }
+ *       - { in: query, name: page, schema: { type: integer, example: 1 }, description: "Page number" }
+ *       - { in: query, name: limit, schema: { type: integer, example: 10 }, description: "Items per page" }
+ *       - { in: query, name: category, schema: { type: string }, description: "Category ID, slug, or name filter" }
+ *       - { in: query, name: minPrice, schema: { type: number }, description: "Minimum price filter" }
+ *       - { in: query, name: maxPrice, schema: { type: number }, description: "Maximum price filter" }
+ *       - { in: query, name: sort, schema: { type: string, enum: [newest, oldest, price_low, price_high, name_asc, name_desc, popular] }, description: "Sort field" }
+ *       - { in: query, name: availability, schema: { type: string, enum: [in_stock, out_of_stock, all] }, description: "Availability filter" }
+ *     responses:
+ *       200:
+ *         description: Search results retrieved successfully
+ */
+router.get("/search", optionalAuthenticate, searchProductsHandler);
+
+/**
+ * @swagger
+ * /products/search/suggestions:
+ *   get:
+ *     summary: Get lightweight search suggestions for navbar autocomplete
+ *     tags: [Products]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: query, name: q, schema: { type: string }, description: "Search query" }
+ *     responses:
+ *       200:
+ *         description: Search suggestions retrieved successfully
+ */
+router.get("/search/suggestions", optionalAuthenticate, getSearchSuggestionsHandler);
 
 /**
  * @swagger
