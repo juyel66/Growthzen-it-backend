@@ -94,6 +94,7 @@ export interface ProductView {
   productImages: string[];
   productVideos: string[];
   status: ProductStatus;
+  stock: number;
   isFeatured: boolean;
   specialSaleEnabled: boolean;
   discountEnabled: boolean;
