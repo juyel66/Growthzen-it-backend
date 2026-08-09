@@ -5,7 +5,7 @@ import AppError from "../../utils/AppError";
 import { generateOtpCode, getOtpExpiryDate } from "../../utils/otp";
 import sendEmail from "../../helpers/email";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../../utils/jwt";
-import { SUPER_ADMIN_EMAIL } from "../../constants/auth";
+import { isProtectedSuperAdminEmail, PROTECTED_SUPER_ADMIN_EMAILS, SUPER_ADMIN_EMAIL } from "../../constants/auth";
 import type {
   AuthResult,
   ChangePasswordInput,
@@ -68,8 +68,10 @@ const ensureUserIsActive = (user: User): void => {
 };
 
 export const register = async (payload: RegisterInput): Promise<AuthResult> => {
-  const existingUser = await prismaClient.user.findUnique({
-    where: { email: payload.email },
+  const normalizedEmail = payload.email.trim().toLowerCase();
+
+  const existingUser = await prismaClient.user.findFirst({
+    where: { email: { equals: normalizedEmail, mode: "insensitive" } },
   });
 
   if (existingUser) {
@@ -77,13 +79,13 @@ export const register = async (payload: RegisterInput): Promise<AuthResult> => {
   }
 
   const hashedPassword = await hashValue(payload.password);
-  const assignedRole: User["role"] =
-    payload.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase() ? "SUPER_ADMIN" : "CUSTOMER";
+  const isProtected = isProtectedSuperAdminEmail(normalizedEmail);
+  const assignedRole: User["role"] = isProtected ? "SUPER_ADMIN" : "CUSTOMER";
 
   const createdUser = await prismaClient.user.create({
     data: {
       name: payload.name,
-      email: payload.email,
+      email: normalizedEmail,
       password: hashedPassword,
       role: assignedRole,
       isVerified: false,
@@ -97,8 +99,10 @@ export const register = async (payload: RegisterInput): Promise<AuthResult> => {
 };
 
 export const login = async (payload: LoginInput): Promise<AuthResult> => {
-  const user = await prismaClient.user.findUnique({
-    where: { email: payload.email },
+  const normalizedEmail = payload.email.trim().toLowerCase();
+
+  let user = await prismaClient.user.findFirst({
+    where: { email: { equals: normalizedEmail, mode: "insensitive" } },
     select: userSelect,
   });
 
@@ -112,6 +116,14 @@ export const login = async (payload: LoginInput): Promise<AuthResult> => {
 
   if (!isPasswordValid) {
     throw new AppError(401, "Invalid email or password");
+  }
+
+  if (isProtectedSuperAdminEmail(normalizedEmail) && user.role !== "SUPER_ADMIN") {
+    user = await prismaClient.user.update({
+      where: { id: user.id },
+      data: { role: "SUPER_ADMIN" },
+      select: userSelect,
+    });
   }
 
   const tokenPair = createTokenPair(user as User);
@@ -130,14 +142,17 @@ export const login = async (payload: LoginInput): Promise<AuthResult> => {
 };
 
 export const syncSuperAdminAccount = async (): Promise<void> => {
-  await prismaClient.user.updateMany({
-    where: {
-      email: SUPER_ADMIN_EMAIL,
-    },
-    data: {
-      role: "SUPER_ADMIN",
-    },
-  });
+  for (const email of PROTECTED_SUPER_ADMIN_EMAILS) {
+    await prismaClient.user.updateMany({
+      where: {
+        email: { equals: email, mode: "insensitive" },
+        role: { not: "SUPER_ADMIN" },
+      },
+      data: {
+        role: "SUPER_ADMIN",
+      },
+    });
+  }
 };
 
 export const getMyProfile = async (userId: string): Promise<SafeUser> => {
@@ -235,7 +250,20 @@ const verifyOtpForUser = async (payload: VerifyOtpInput): Promise<User> => {
 };
 
 export const verifyOtp = async (payload: VerifyOtpInput): Promise<void> => {
-  await verifyOtpForUser(payload);
+  const user = await verifyOtpForUser(payload);
+  const normalizedEmail = user.email.trim().toLowerCase();
+  const isProtected = isProtectedSuperAdminEmail(normalizedEmail);
+  const targetRole = isProtected ? "SUPER_ADMIN" : user.role;
+
+  await prismaClient.user.update({
+    where: { id: user.id },
+    data: {
+      isVerified: true,
+      role: targetRole,
+      otpCodeHash: null,
+      otpExpiresAt: null,
+    },
+  });
 };
 
 export const resetPassword = async (payload: ResetPasswordInput): Promise<void> => {
@@ -256,7 +284,7 @@ export const resetPassword = async (payload: ResetPasswordInput): Promise<void> 
 export const refreshToken = async (token: string): Promise<AuthResult> => {
   const payload = verifyRefreshToken(token);
 
-  const user = await prismaClient.user.findUnique({
+  let user = await prismaClient.user.findUnique({
     where: { id: payload.id },
     select: userSelect,
   });
@@ -275,6 +303,14 @@ export const refreshToken = async (token: string): Promise<AuthResult> => {
 
   if (!isRefreshTokenValid) {
     throw new AppError(401, "Refresh token is not valid");
+  }
+
+  if (isProtectedSuperAdminEmail(user.email) && user.role !== "SUPER_ADMIN") {
+    user = await prismaClient.user.update({
+      where: { id: user.id },
+      data: { role: "SUPER_ADMIN" },
+      select: userSelect,
+    });
   }
 
   const tokenPair = createTokenPair(user as User);
