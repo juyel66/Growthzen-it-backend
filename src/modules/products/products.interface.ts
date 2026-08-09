@@ -138,3 +138,50 @@ export interface PaginatedProductsResponse {
 
 export const PRODUCT_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL"] as const;
 export type ProductSize = (typeof PRODUCT_SIZES)[number];
+
+export interface ProductSearchQueryParams {
+  q?: string;
+  page?: number | string;
+  limit?: number | string;
+  category?: string;
+  minPrice?: number | string;
+  maxPrice?: number | string;
+  sort?: "newest" | "oldest" | "price_low" | "price_high" | "name_asc" | "name_desc" | "popular" | string;
+  availability?: "in_stock" | "out_of_stock" | "all" | string;
+}
+
+export interface ProductSearchResponse {
+  products: ProductView[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface ProductSuggestionItem {
+  id: string;
+  name: string;
+  title: string;
+  slug: string;
+  sku: string;
+  image: string;
+  price: number;
+  originalPrice?: number;
+  category?: string;
+  stock?: number;
+}
+
+export interface CategorySuggestionItem {
+  id: string;
+  name: string;
+  slug: string;
+  image?: string | null;
+}
+
+export interface SearchSuggestionsResponse {
+  products: ProductSuggestionItem[];
+  categories: CategorySuggestionItem[];
+}
+
