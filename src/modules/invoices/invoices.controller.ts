@@ -2,9 +2,25 @@ import type { Request, Response } from "express";
 import AppError from "../../utils/AppError";
 import catchAsync from "../../utils/catchAsync";
 import sendResponse from "../../utils/sendResponse";
-import { createOrGetInvoice, getAllInvoicesService, getPublicInvoiceByToken } from "./invoices.service";
+import { createOrGetInvoice, getAllInvoicesService, getMyInvoicesService, getPublicInvoiceByToken } from "./invoices.service";
 
 const getParamId = (value: string | string[]): string => (Array.isArray(value) ? value[0] : value);
+
+export const getMyInvoicesHandler = catchAsync(async (req: Request, res: Response) => {
+  const currentUser = req.user;
+
+  if (!currentUser) {
+    throw new AppError(401, "User is not authenticated");
+  }
+
+  const invoices = await getMyInvoicesService(currentUser);
+
+  sendResponse(res, {
+    message: "My invoices retrieved successfully",
+    data: invoices,
+  });
+});
+
 
 export const getInvoiceHandler = catchAsync(async (req: Request, res: Response) => {
   const rawId = req.params.orderId ?? req.params.id;
@@ -14,7 +30,7 @@ export const getInvoiceHandler = catchAsync(async (req: Request, res: Response) 
     throw new AppError(400, "Order id is required");
   }
 
-  const invoice = await createOrGetInvoice(orderId);
+  const invoice = await createOrGetInvoice(orderId, req.user);
 
   sendResponse(res, {
     message: "Invoice retrieved successfully",
