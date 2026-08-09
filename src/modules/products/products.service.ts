@@ -11,7 +11,7 @@ import {
   toRelativePath,
 } from "../../utils/imageUrl";
 import { deleteFileFromStorage } from "../../services/storage.service";
-import type { GetProductsQueryParams, PaginatedProductsResponse, ProductAttribute, ProductCreateInput, ProductUpdateInput, ProductView } from "./products.interface";
+import type { CategorySuggestionItem, GetProductsQueryParams, PaginatedProductsResponse, ProductAttribute, ProductCreateInput, ProductSearchQueryParams, ProductSearchResponse, ProductSuggestionItem, ProductUpdateInput, ProductView, SearchSuggestionsResponse } from "./products.interface";
 import { normalizeProductCategory } from "./products.category";
 import { calculateFinalPrice, getDisplayPrice } from "../pricing/pricing.service";
 
@@ -827,3 +827,394 @@ export const deleteProduct = async (id: string): Promise<void> => {
     await deleteFileFromStorage(fileUrl);
   }
 };
+
+export const searchProducts = async (
+  params?: ProductSearchQueryParams,
+  viewerRole?: Role
+): Promise<ProductSearchResponse> => {
+  const page = Math.max(1, Number(params?.page) || 1);
+  const limit = Math.max(1, Math.min(100, Number(params?.limit) || 10));
+  const skip = (page - 1) * limit;
+
+  // Storefront search MUST return ACTIVE products only
+  const where: Prisma.ProductWhereInput = {
+    status: "ACTIVE",
+  };
+
+  // Search query term matching
+  if (params?.q && params.q.trim()) {
+    const q = params.q.trim();
+
+    where.OR = [
+      { title: { contains: q, mode: "insensitive" } },
+      { productCode: { contains: q, mode: "insensitive" } },
+      { barcode: { contains: q, mode: "insensitive" } },
+      { category: { contains: q, mode: "insensitive" } },
+      { categoryRel: { is: { name: { contains: q, mode: "insensitive" } } } },
+      { categoryRel: { is: { slug: { contains: q, mode: "insensitive" } } } },
+      { shortDescription: { contains: q, mode: "insensitive" } },
+      { description: { contains: q, mode: "insensitive" } },
+      {
+        attributes: {
+          path: [],
+          string_contains: q,
+        },
+      },
+    ];
+  }
+
+  // Category filter with subcategory inclusion
+  if (params?.category && params.category.trim()) {
+    const catTerm = params.category.trim();
+
+    const matchingCategories = await prismaClient.category.findMany({
+      where: {
+        OR: [
+          { id: catTerm },
+          { slug: { equals: catTerm, mode: "insensitive" } },
+          { name: { equals: catTerm, mode: "insensitive" } },
+        ],
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+
+    const categoryIds = matchingCategories.map((c) => c.id);
+
+    let categoryFilter: Prisma.ProductWhereInput;
+
+    if (categoryIds.length > 0) {
+      const subCategories = await prismaClient.category.findMany({
+        where: {
+          parentCategoryId: { in: categoryIds },
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      const allCategoryIds = Array.from(new Set([...categoryIds, ...subCategories.map((sc) => sc.id)]));
+
+      categoryFilter = {
+        OR: [
+          { categoryId: { in: allCategoryIds } },
+          { category: { equals: catTerm, mode: "insensitive" } },
+          { categoryRel: { is: { slug: { equals: catTerm, mode: "insensitive" } } } },
+          { categoryRel: { is: { name: { equals: catTerm, mode: "insensitive" } } } },
+        ],
+      };
+    } else {
+      categoryFilter = {
+        OR: [
+          { category: { contains: catTerm, mode: "insensitive" } },
+          { categoryRel: { is: { slug: { contains: catTerm, mode: "insensitive" } } } },
+          { categoryRel: { is: { name: { contains: catTerm, mode: "insensitive" } } } },
+        ],
+      };
+    }
+
+    if (where.AND) {
+      if (Array.isArray(where.AND)) {
+        where.AND.push(categoryFilter);
+      } else {
+        where.AND = [where.AND, categoryFilter];
+      }
+    } else {
+      where.AND = [categoryFilter];
+    }
+  }
+
+  // Price Filter (minPrice & maxPrice) based on effective role price
+  const minPrice = params?.minPrice !== undefined && params?.minPrice !== "" && !isNaN(Number(params.minPrice)) ? Number(params.minPrice) : undefined;
+  const maxPrice = params?.maxPrice !== undefined && params?.maxPrice !== "" && !isNaN(Number(params.maxPrice)) ? Number(params.maxPrice) : undefined;
+
+  if (minPrice !== undefined || maxPrice !== undefined) {
+    const isReseller = viewerRole === "RESELLER";
+
+    if (isReseller) {
+      const specCond: Prisma.ProductWhereInput = {
+        resellerSpecialPrice: {
+          gt: 0,
+          ...(minPrice !== undefined ? { gte: minPrice } : {}),
+          ...(maxPrice !== undefined ? { lte: maxPrice } : {}),
+        },
+      };
+
+      const regCond: Prisma.ProductWhereInput = {
+        OR: [
+          { resellerSpecialPrice: null },
+          { resellerSpecialPrice: { lte: 0 } },
+        ],
+        AND: [
+          {
+            OR: [
+              {
+                resellerSellPrice: {
+                  ...(minPrice !== undefined ? { gte: minPrice } : {}),
+                  ...(maxPrice !== undefined ? { lte: maxPrice } : {}),
+                },
+              },
+              {
+                resellerSellPrice: null,
+                resellerPrice: {
+                  ...(minPrice !== undefined ? { gte: minPrice } : {}),
+                  ...(maxPrice !== undefined ? { lte: maxPrice } : {}),
+                },
+              },
+            ],
+          },
+        ],
+      };
+
+      const priceFilter: Prisma.ProductWhereInput = { OR: [specCond, regCond] };
+
+      if (where.AND) {
+        if (Array.isArray(where.AND)) {
+          where.AND.push(priceFilter);
+        } else {
+          where.AND = [where.AND, priceFilter];
+        }
+      } else {
+        where.AND = [priceFilter];
+      }
+    } else {
+      const custSpecCond: Prisma.ProductWhereInput = {
+        customerSpecialPrice: {
+          gt: 0,
+          ...(minPrice !== undefined ? { gte: minPrice } : {}),
+          ...(maxPrice !== undefined ? { lte: maxPrice } : {}),
+        },
+      };
+
+      const salePriceCond: Prisma.ProductWhereInput = {
+        OR: [
+          { customerSpecialPrice: null },
+          { customerSpecialPrice: { lte: 0 } },
+        ],
+        specialSaleEnabled: true,
+        salePrice: {
+          gt: 0,
+          ...(minPrice !== undefined ? { gte: minPrice } : {}),
+          ...(maxPrice !== undefined ? { lte: maxPrice } : {}),
+        },
+      };
+
+      const regCustCond: Prisma.ProductWhereInput = {
+        AND: [
+          {
+            OR: [
+              { customerSpecialPrice: null },
+              { customerSpecialPrice: { lte: 0 } },
+            ],
+          },
+          {
+            OR: [
+              { specialSaleEnabled: false },
+              { salePrice: null },
+              { salePrice: { lte: 0 } },
+            ],
+          },
+          {
+            customerSellPrice: {
+              ...(minPrice !== undefined ? { gte: minPrice } : {}),
+              ...(maxPrice !== undefined ? { lte: maxPrice } : {}),
+            },
+          },
+        ],
+      };
+
+      const priceFilter: Prisma.ProductWhereInput = {
+        OR: [custSpecCond, salePriceCond, regCustCond],
+      };
+
+      if (where.AND) {
+        if (Array.isArray(where.AND)) {
+          where.AND.push(priceFilter);
+        } else {
+          where.AND = [where.AND, priceFilter];
+        }
+      } else {
+        where.AND = [priceFilter];
+      }
+    }
+  }
+
+  // Stock availability filter
+  if (params?.availability && params.availability.trim()) {
+    const avail = params.availability.toLowerCase().trim();
+    if (avail === "out_of_stock") {
+      // Out of stock returns empty list for active products as stock is 100 when active
+      return {
+        products: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 1,
+        },
+      };
+    }
+  }
+
+  // Sorting logic
+  const sortParam = params?.sort?.toLowerCase().trim() || "newest";
+  let orderBy: Prisma.ProductOrderByWithRelationInput[] = [{ createdAt: "desc" }];
+
+  if (sortParam === "oldest") {
+    orderBy = [{ createdAt: "asc" }];
+  } else if (sortParam === "price_low" || sortParam === "price_asc") {
+    const priceField = viewerRole === "RESELLER" ? "resellerPrice" : "customerSellPrice";
+    orderBy = [{ [priceField]: "asc" }, { createdAt: "desc" }];
+  } else if (sortParam === "price_high" || sortParam === "price_desc") {
+    const priceField = viewerRole === "RESELLER" ? "resellerPrice" : "customerSellPrice";
+    orderBy = [{ [priceField]: "desc" }, { createdAt: "desc" }];
+  } else if (sortParam === "name_asc" || sortParam === "title_asc") {
+    orderBy = [{ title: "asc" }];
+  } else if (sortParam === "name_desc" || sortParam === "title_desc") {
+    orderBy = [{ title: "desc" }];
+  } else if (sortParam === "popular") {
+    orderBy = [{ isFeatured: "desc" }, { createdAt: "desc" }];
+  } else {
+    orderBy = [{ createdAt: "desc" }];
+  }
+
+  const [products, total] = await Promise.all([
+    prismaClient.product.findMany({
+      where,
+      orderBy,
+      skip,
+      take: limit,
+      include: productInclude,
+    }),
+    prismaClient.product.count({ where }),
+  ]);
+
+  const mappedProducts = products.map((p) => mapProduct(p, viewerRole));
+  const totalPages = Math.ceil(total / limit) || 1;
+
+  return {
+    products: mappedProducts,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages,
+    },
+  };
+};
+
+export const getSearchSuggestions = async (
+  q?: string,
+  viewerRole?: Role
+): Promise<SearchSuggestionsResponse> => {
+  const searchTerm = q?.trim() || "";
+
+  if (!searchTerm) {
+    const [topProducts, topCategories] = await Promise.all([
+      prismaClient.product.findMany({
+        where: { status: "ACTIVE" },
+        orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
+        take: 6,
+        include: productInclude,
+      }),
+      prismaClient.category.findMany({
+        where: { status: "ACTIVE", deletedAt: null },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+        take: 4,
+        select: { id: true, name: true, slug: true, image: true },
+      }),
+    ]);
+
+    const productSuggestions: ProductSuggestionItem[] = topProducts.map((p) => {
+      const mapped = mapProduct(p, viewerRole);
+      return {
+        id: mapped.id,
+        name: mapped.title,
+        title: mapped.title,
+        slug: mapped.slug,
+        sku: mapped.productCode,
+        image: mapped.thumbnailImage,
+        price: mapped.displayPrice,
+        originalPrice: mapped.originalPrice,
+        category: mapped.category,
+        stock: mapped.stock,
+      };
+    });
+
+    const categorySuggestions: CategorySuggestionItem[] = topCategories.map((c) => ({
+      id: c.id,
+      name: c.name,
+      slug: c.slug,
+      image: c.image ? formatPublicUrl(toRelativePath(c.image)) : null,
+    }));
+
+    return {
+      products: productSuggestions,
+      categories: categorySuggestions,
+    };
+  }
+
+  const productWhere: Prisma.ProductWhereInput = {
+    status: "ACTIVE",
+    OR: [
+      { title: { contains: searchTerm, mode: "insensitive" } },
+      { productCode: { contains: searchTerm, mode: "insensitive" } },
+      { barcode: { contains: searchTerm, mode: "insensitive" } },
+      { category: { contains: searchTerm, mode: "insensitive" } },
+      { categoryRel: { is: { name: { contains: searchTerm, mode: "insensitive" } } } },
+      { shortDescription: { contains: searchTerm, mode: "insensitive" } },
+    ],
+  };
+
+  const categoryWhere: Prisma.CategoryWhereInput = {
+    status: "ACTIVE",
+    deletedAt: null,
+    OR: [
+      { name: { contains: searchTerm, mode: "insensitive" } },
+      { slug: { contains: searchTerm, mode: "insensitive" } },
+      { description: { contains: searchTerm, mode: "insensitive" } },
+    ],
+  };
+
+  const [matchingProducts, matchingCategories] = await Promise.all([
+    prismaClient.product.findMany({
+      where: productWhere,
+      orderBy: [{ isFeatured: "desc" }, { createdAt: "desc" }],
+      take: 6,
+      include: productInclude,
+    }),
+    prismaClient.category.findMany({
+      where: categoryWhere,
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      take: 4,
+      select: { id: true, name: true, slug: true, image: true },
+    }),
+  ]);
+
+  const productSuggestions: ProductSuggestionItem[] = matchingProducts.map((p) => {
+    const mapped = mapProduct(p, viewerRole);
+    return {
+      id: mapped.id,
+      name: mapped.title,
+      title: mapped.title,
+      slug: mapped.slug,
+      sku: mapped.productCode,
+      image: mapped.thumbnailImage,
+      price: mapped.displayPrice,
+      originalPrice: mapped.originalPrice,
+      category: mapped.category,
+      stock: mapped.stock,
+    };
+  });
+
+  const categorySuggestions: CategorySuggestionItem[] = matchingCategories.map((c) => ({
+    id: c.id,
+    name: c.name,
+    slug: c.slug,
+    image: c.image ? formatPublicUrl(toRelativePath(c.image)) : null,
+  }));
+
+  return {
+    products: productSuggestions,
+    categories: categorySuggestions,
+  };
+};
+
