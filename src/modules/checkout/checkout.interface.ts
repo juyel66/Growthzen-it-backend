@@ -30,6 +30,9 @@ export interface CheckoutSummary {
   subtotal: number;
   discount: number;
   shippingCharge: number;
+  deliveryCharge: number;
+  deliveryStatus: "FREE" | "PAID" | "DISABLED";
+  deliveryMessage: string;
   grandTotal: number;
   originalTotal: number;
   finalTotal: number;
