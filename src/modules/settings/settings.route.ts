@@ -2,6 +2,7 @@ import { Router } from "express";
 import { authenticate, authorizeRoles, optionalAuthenticate } from "../../middlewares/auth";
 import { bannerUpload, mapBannerUploadToBody } from "../../middlewares/upload";
 import validateRequest from "../../middlewares/validateRequest";
+import sendResponse from "../../utils/sendResponse";
 import {
   createBannerHandler,
   deleteBannerHandler,
@@ -24,6 +25,20 @@ import {
 import { updateDeliverySettingsValidationSchema, updateSettingsValidationSchema } from "./settings.validation";
 
 const router = Router();
+
+router.post(
+  "/banners/upload",
+  authenticate,
+  authorizeRoles("ADMIN", "SUPER_ADMIN"),
+  bannerUpload,
+  mapBannerUploadToBody,
+  (req, res) => {
+    sendResponse(res, {
+      message: "Banner image uploaded successfully",
+      data: { url: req.body.image || "" },
+    });
+  }
+);
 
 // ==========================================
 // 1. BANNER / CAROUSEL MANAGEMENT ROUTES
