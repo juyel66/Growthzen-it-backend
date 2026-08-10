@@ -228,6 +228,8 @@ model AppSetting {
   language                   String   @default("en")
 
   // Delivery Settings
+  deliveryEnabled            Boolean  @default(true)
+  freeDeliveryEnabled        Boolean  @default(false)
   insideDhakaDeliveryCharge  Float    @default(60)
   outsideDhakaDeliveryCharge Float    @default(120)
   freeShippingMinOrderAmount Float    @default(0)
