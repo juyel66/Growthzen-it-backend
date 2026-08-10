@@ -20,6 +20,7 @@ const parseOptionalBoolean = z.preprocess((value) => {
 export const createBannerValidationSchema = z.object({
   title: z.string().max(200, "Title cannot exceed 200 characters").nullable().optional(),
   subtitle: z.string().max(500, "Subtitle cannot exceed 500 characters").nullable().optional(),
+  description: z.string().max(2000, "Description cannot exceed 2000 characters").nullable().optional(),
   image: z.string().min(1, "Image path or URL is required").max(2048),
   buttonText: z.string().max(100, "Button text cannot exceed 100 characters").nullable().optional(),
   buttonUrl: z.string().max(2048, "Button URL cannot exceed 2048 characters").nullable().optional(),
@@ -30,6 +31,7 @@ export const createBannerValidationSchema = z.object({
 export const updateBannerValidationSchema = z.object({
   title: z.string().max(200, "Title cannot exceed 200 characters").nullable().optional(),
   subtitle: z.string().max(500, "Subtitle cannot exceed 500 characters").nullable().optional(),
+  description: z.string().max(2000, "Description cannot exceed 2000 characters").nullable().optional(),
   image: z.string().min(1, "Image path or URL cannot be empty").max(2048).optional(),
   buttonText: z.string().max(100, "Button text cannot exceed 100 characters").nullable().optional(),
   buttonUrl: z.string().max(2048, "Button URL cannot exceed 2048 characters").nullable().optional(),
