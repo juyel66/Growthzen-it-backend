@@ -141,6 +141,9 @@ export const getDeliverySettings = async (): Promise<DeliverySettingsView> => {
     freeDeliveryEnabled: settings.freeDeliveryEnabled,
     insideDhakaCharge: settings.insideDhakaDeliveryCharge,
     outsideDhakaCharge: settings.outsideDhakaDeliveryCharge,
+    insideDhakaDeliveryCharge: settings.insideDhakaDeliveryCharge,
+    outsideDhakaDeliveryCharge: settings.outsideDhakaDeliveryCharge,
+    freeShippingMinOrderAmount: settings.freeShippingMinOrderAmount,
     estimatedDeliveryDays: settings.estimatedDeliveryDays,
   };
 };
@@ -180,6 +183,9 @@ export const updateDeliverySettings = async (
     freeDeliveryEnabled: updatedSettings.freeDeliveryEnabled,
     insideDhakaCharge: updatedSettings.insideDhakaDeliveryCharge,
     outsideDhakaCharge: updatedSettings.outsideDhakaDeliveryCharge,
+    insideDhakaDeliveryCharge: updatedSettings.insideDhakaDeliveryCharge,
+    outsideDhakaDeliveryCharge: updatedSettings.outsideDhakaDeliveryCharge,
+    freeShippingMinOrderAmount: updatedSettings.freeShippingMinOrderAmount,
     estimatedDeliveryDays: updatedSettings.estimatedDeliveryDays,
   };
 };
