@@ -17,6 +17,21 @@ const parseOptionalBoolean = z.preprocess((value) => {
   return value;
 }, z.boolean().optional());
 
+const parseSafeNonNegativeNumber = (label: string) =>
+  z.preprocess((value) => {
+    if (value === undefined || value === null) return 0;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed === "" || trimmed === "null" || trimmed === "undefined") return 0;
+      const num = Number(trimmed);
+      return Number.isNaN(num) ? 0 : Math.max(0, num);
+    }
+    if (typeof value === "number") {
+      return Number.isNaN(value) ? 0 : Math.max(0, value);
+    }
+    return 0;
+  }, z.number().nonnegative(`${label} must be >= 0`).optional().nullable());
+
 export const updateSettingsValidationSchema = z.object({
   // General Settings
   storeName: z.string().min(2, "Store name must be at least 2 characters").max(100).optional(),
@@ -32,9 +47,13 @@ export const updateSettingsValidationSchema = z.object({
   language: z.string().min(2).max(10).optional(),
 
   // Delivery Settings
+  deliveryEnabled: parseOptionalBoolean,
+  freeDeliveryEnabled: parseOptionalBoolean,
   insideDhakaDeliveryCharge: parseNumber(z.number().nonnegative("Inside Dhaka delivery charge must be >= 0")).optional(),
   outsideDhakaDeliveryCharge: parseNumber(z.number().nonnegative("Outside Dhaka delivery charge must be >= 0")).optional(),
-  freeShippingMinOrderAmount: parseNumber(z.number().nonnegative("Free shipping min order amount must be >= 0")).optional(),
+  insideDhakaCharge: parseNumber(z.number().nonnegative("Inside Dhaka delivery charge must be >= 0")).optional(),
+  outsideDhakaCharge: parseNumber(z.number().nonnegative("Outside Dhaka delivery charge must be >= 0")).optional(),
+  freeShippingMinOrderAmount: parseSafeNonNegativeNumber("Free shipping min order amount"),
   estimatedDeliveryDays: parseNumber(z.number().int().min(1, "Estimated delivery days must be at least 1")).optional(),
 
   // Payment Settings
@@ -61,4 +80,15 @@ export const updateSettingsValidationSchema = z.object({
   customerDiscountPercentage: parseNumber(z.number().int().min(0).max(100)).optional(),
   couponCode: z.string().nullable().optional(),
   couponActive: parseOptionalBoolean,
+});
+
+export const updateDeliverySettingsValidationSchema = z.object({
+  deliveryEnabled: parseOptionalBoolean,
+  freeDeliveryEnabled: parseOptionalBoolean,
+  insideDhakaCharge: parseNumber(z.number().nonnegative("Inside Dhaka delivery charge must be >= 0")).optional(),
+  outsideDhakaCharge: parseNumber(z.number().nonnegative("Outside Dhaka delivery charge must be >= 0")).optional(),
+  insideDhakaDeliveryCharge: parseNumber(z.number().nonnegative("Inside Dhaka delivery charge must be >= 0")).optional(),
+  outsideDhakaDeliveryCharge: parseNumber(z.number().nonnegative("Outside Dhaka delivery charge must be >= 0")).optional(),
+  estimatedDeliveryDays: parseNumber(z.number().int().min(1, "Estimated delivery days must be at least 1")).optional(),
+  freeShippingMinOrderAmount: parseSafeNonNegativeNumber("Free shipping min order amount"),
 });
