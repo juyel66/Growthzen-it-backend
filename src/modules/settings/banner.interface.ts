@@ -1,6 +1,7 @@
 export interface BannerCreateInput {
   title?: string | null;
   subtitle?: string | null;
+  description?: string | null;
   image: string;
   buttonText?: string | null;
   buttonUrl?: string | null;
@@ -11,6 +12,7 @@ export interface BannerCreateInput {
 export interface BannerUpdateInput {
   title?: string | null;
   subtitle?: string | null;
+  description?: string | null;
   image?: string;
   buttonText?: string | null;
   buttonUrl?: string | null;
@@ -31,6 +33,7 @@ export interface BannerView {
   id: string;
   title: string | null;
   subtitle: string | null;
+  description: string | null;
   image: string;
   buttonText: string | null;
   buttonUrl: string | null;
