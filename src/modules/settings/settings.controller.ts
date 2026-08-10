@@ -4,8 +4,10 @@ import catchAsync from "../../utils/catchAsync";
 import sendResponse from "../../utils/sendResponse";
 import {
   getCategoryDiscountsSettings,
+  getDeliverySettings,
   getSettings,
   updateCategoryDiscountSetting,
+  updateDeliverySettings,
   updateSettings,
 } from "./settings.service";
 
@@ -52,5 +54,23 @@ export const updateCategoryDiscountHandler = catchAsync(async (req: Request, res
   sendResponse(res, {
     message: "Category discount updated successfully",
     data: updatedCategory,
+  });
+});
+
+export const getDeliverySettingsHandler = catchAsync(async (_req: Request, res: Response) => {
+  const deliverySettings = await getDeliverySettings();
+
+  sendResponse(res, {
+    message: "Delivery settings retrieved successfully",
+    data: deliverySettings,
+  });
+});
+
+export const updateDeliverySettingsHandler = catchAsync(async (req: Request, res: Response) => {
+  const updatedDeliverySettings = await updateDeliverySettings(req.body);
+
+  sendResponse(res, {
+    message: "Delivery settings updated successfully",
+    data: updatedDeliverySettings,
   });
 });
