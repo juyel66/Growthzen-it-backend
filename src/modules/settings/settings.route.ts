@@ -15,11 +15,13 @@ import {
 } from "./banner.validation";
 import {
   getCategoryDiscountsHandler,
+  getDeliverySettingsHandler,
   getSettingsHandler,
   updateCategoryDiscountHandler,
+  updateDeliverySettingsHandler,
   updateSettingsHandler,
 } from "./settings.controller";
-import { updateSettingsValidationSchema } from "./settings.validation";
+import { updateDeliverySettingsValidationSchema, updateSettingsValidationSchema } from "./settings.validation";
 
 const router = Router();
 
@@ -185,7 +187,7 @@ router.delete(
 // 2. APP SYSTEM SETTINGS & CATEGORY DISCOUNTS
 // ==========================================
 
-router.get("/", authenticate, authorizeRoles("ADMIN", "SUPER_ADMIN"), getSettingsHandler);
+router.get("/", optionalAuthenticate, getSettingsHandler);
 
 /**
  * @swagger
@@ -286,5 +288,61 @@ router.patch(
   authorizeRoles("ADMIN", "SUPER_ADMIN"),
   updateCategoryDiscountHandler
 );
+
+/**
+ * @swagger
+ * /settings/delivery:
+ *   get:
+ *     summary: Get Centralized Delivery Settings
+ *     description: Returns delivery configuration including delivery status, free delivery flag, and location charges. Only accessible by ADMIN and SUPER_ADMIN.
+ *     tags: [Settings]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: Delivery settings retrieved successfully
+ *       401: { description: Authentication required }
+ *       403: { description: Admin access required }
+ */
+router.get(
+  "/delivery",
+  authenticate,
+  authorizeRoles("ADMIN", "SUPER_ADMIN"),
+  getDeliverySettingsHandler
+);
+
+/**
+ * @swagger
+ * /settings/delivery:
+ *   patch:
+ *     summary: Update Centralized Delivery Settings
+ *     description: Updates delivery configuration (enable/disable delivery, enable/disable free delivery, set inside/outside Dhaka charges). Only accessible by ADMIN and SUPER_ADMIN.
+ *     tags: [Settings]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               deliveryEnabled: { type: boolean, example: true }
+ *               freeDeliveryEnabled: { type: boolean, example: false }
+ *               insideDhakaCharge: { type: number, example: 60 }
+ *               outsideDhakaCharge: { type: number, example: 120 }
+ *     responses:
+ *       200:
+ *         description: Delivery settings updated successfully
+ *       400: { description: Validation error }
+ *       401: { description: Authentication required }
+ *       403: { description: Admin access required }
+ */
+router.patch(
+  "/delivery",
+  authenticate,
+  authorizeRoles("ADMIN", "SUPER_ADMIN"),
+  validateRequest(updateDeliverySettingsValidationSchema),
+  updateDeliverySettingsHandler
+);
+
 
 export default router;
