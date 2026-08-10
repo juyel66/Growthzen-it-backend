@@ -13,6 +13,7 @@ const mapBanner = (banner: Banner): BannerView => ({
   id: banner.id,
   title: banner.title,
   subtitle: banner.subtitle,
+  description: banner.description,
   image: banner.image,
   buttonText: banner.buttonText,
   buttonUrl: banner.buttonUrl,
@@ -27,6 +28,7 @@ export const createBanner = async (payload: BannerCreateInput): Promise<BannerVi
     data: {
       title: payload.title ?? null,
       subtitle: payload.subtitle ?? null,
+      description: payload.description ?? null,
       image: payload.image,
       buttonText: payload.buttonText ?? null,
       buttonUrl: payload.buttonUrl ?? null,
@@ -55,6 +57,7 @@ export const getBanners = async (
           OR: [
             { title: { contains: options.search, mode: "insensitive" } },
             { subtitle: { contains: options.search, mode: "insensitive" } },
+            { description: { contains: options.search, mode: "insensitive" } },
           ],
         }
       : {}),
@@ -115,6 +118,7 @@ export const updateBanner = async (
     data: {
       ...(payload.title !== undefined ? { title: payload.title } : {}),
       ...(payload.subtitle !== undefined ? { subtitle: payload.subtitle } : {}),
+      ...(payload.description !== undefined ? { description: payload.description } : {}),
       ...(payload.image !== undefined ? { image: payload.image } : {}),
       ...(payload.buttonText !== undefined ? { buttonText: payload.buttonText } : {}),
       ...(payload.buttonUrl !== undefined ? { buttonUrl: payload.buttonUrl } : {}),
