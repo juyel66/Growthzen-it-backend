@@ -32,26 +32,38 @@ const validatePaymentMethodSetting = async (method: string, db: Database = prism
 };
 
 const resolveShipping = async (area: DeliveryArea, shippingMethodId?: string, db: Database = prismaClient) => {
-  if (shippingMethodId) {
-    const method = await db.shippingMethod.findFirst({ where: { id: shippingMethodId, status: "ACTIVE", deletedAt: null } });
-    if (!method) throw new AppError(400, "Shipping method is not active or does not exist");
-    return {
-      id: method.id,
-      name: method.name,
-      charge: method.charge,
-      estimatedDeliveryDays: method.estimatedDeliveryDays,
-      freeShippingMinOrderAmount: 0,
-    };
-  }
   const settings = await db.appSetting.findFirst({
     orderBy: { createdAt: "asc" },
     select: {
+      deliveryEnabled: true,
+      freeDeliveryEnabled: true,
       insideDhakaDeliveryCharge: true,
       outsideDhakaDeliveryCharge: true,
       freeShippingMinOrderAmount: true,
       estimatedDeliveryDays: true,
     },
   });
+
+  const rawDeliveryEnabled = settings?.deliveryEnabled ?? true;
+  const freeDeliveryEnabled = settings?.freeDeliveryEnabled ?? false;
+  const deliveryEnabled = rawDeliveryEnabled || freeDeliveryEnabled;
+
+  if (shippingMethodId) {
+    const method = await db.shippingMethod.findFirst({ where: { id: shippingMethodId, status: "ACTIVE", deletedAt: null } });
+    if (method) {
+      return {
+        id: method.id,
+        name: method.name,
+        charge: freeDeliveryEnabled ? 0 : method.charge,
+        estimatedDeliveryDays: method.estimatedDeliveryDays,
+        freeShippingMinOrderAmount: 0,
+        deliveryEnabled,
+        freeDeliveryEnabled,
+        available: deliveryEnabled,
+        isFree: freeDeliveryEnabled,
+      };
+    }
+  }
 
   const baseCharge = area === "INSIDE_DHAKA"
     ? (settings?.insideDhakaDeliveryCharge ?? 60)
@@ -60,9 +72,13 @@ const resolveShipping = async (area: DeliveryArea, shippingMethodId?: string, db
   return {
     id: null,
     name: area === "INSIDE_DHAKA" ? "Inside Dhaka" : "Outside Dhaka",
-    charge: baseCharge,
+    charge: freeDeliveryEnabled ? 0 : baseCharge,
     estimatedDeliveryDays: settings?.estimatedDeliveryDays ?? 3,
     freeShippingMinOrderAmount: settings?.freeShippingMinOrderAmount ?? 0,
+    deliveryEnabled,
+    freeDeliveryEnabled,
+    available: deliveryEnabled,
+    isFree: freeDeliveryEnabled,
   };
 };
 
@@ -77,7 +93,8 @@ const summary = (
   cart: CartSnapshot,
   user: CheckoutUser,
   shipping: Awaited<ReturnType<typeof resolveShipping>>,
-  couponDiscount: number
+  couponDiscount: number,
+  area: DeliveryArea
 ): CheckoutSummary => {
   const products = cart.items.map((item) => {
     const price = calculateProductPrice(item.product, user.role);
@@ -95,10 +112,29 @@ const summary = (
   const productDiscount = money(products.reduce((sum, item) => sum + item.discount, 0));
   const discount = money(productDiscount + couponDiscount);
 
-  // Apply Free Shipping Threshold if applicable
-  let finalShippingCharge = shipping.charge;
-  if (shipping.freeShippingMinOrderAmount > 0 && subtotal >= shipping.freeShippingMinOrderAmount) {
+  // Delivery charge & status calculation enforcing strict hierarchy:
+  // 1. freeDeliveryEnabled = true -> deliveryEnabled = true, charge = 0, status = FREE
+  // 2. deliveryEnabled = false (and freeDeliveryEnabled = false) -> delivery is disabled
+  // 3. deliveryEnabled = true AND freeDeliveryEnabled = false -> configured Inside/Outside Dhaka rates
+  const isFreeDelivery = shipping.freeDeliveryEnabled || (shipping.freeShippingMinOrderAmount > 0 && subtotal >= shipping.freeShippingMinOrderAmount);
+  const isDeliveryEnabled = shipping.freeDeliveryEnabled || shipping.deliveryEnabled;
+
+  let finalShippingCharge = 0;
+  let deliveryStatus: "FREE" | "PAID" | "DISABLED" = "DISABLED";
+  let deliveryMessage = "Delivery Disabled";
+
+  if (!isDeliveryEnabled) {
     finalShippingCharge = 0;
+    deliveryStatus = "DISABLED";
+    deliveryMessage = "Delivery Disabled";
+  } else if (isFreeDelivery) {
+    finalShippingCharge = 0;
+    deliveryStatus = "FREE";
+    deliveryMessage = area === "INSIDE_DHAKA" ? "Inside Dhaka (Free Delivery)" : "Outside Dhaka (Free Delivery)";
+  } else {
+    finalShippingCharge = shipping.charge;
+    deliveryStatus = "PAID";
+    deliveryMessage = area === "INSIDE_DHAKA" ? "Inside Dhaka Delivery" : "Outside Dhaka Delivery";
   }
 
   const final = money(subtotal - discount + finalShippingCharge);
@@ -110,6 +146,9 @@ const summary = (
     subtotal,
     discount,
     shippingCharge: money(finalShippingCharge),
+    deliveryCharge: money(finalShippingCharge),
+    deliveryStatus,
+    deliveryMessage,
     grandTotal: final,
     originalTotal: subtotal,
     finalTotal: final,
@@ -137,13 +176,16 @@ const orderNumber = async (db: Prisma.TransactionClient) => {
 };
 
 export const getCheckoutSummary = async (user: CheckoutUser, area: DeliveryArea, shippingMethodId?: string) => {
+  if (!area || !["INSIDE_DHAKA", "OUTSIDE_DHAKA"].includes(area)) {
+    throw new AppError(400, "deliveryArea is required and must be INSIDE_DHAKA or OUTSIDE_DHAKA");
+  }
   const [cart, shipping] = await Promise.all([
     prismaClient.cart.findUnique({ where: { userId: user.id }, select: cartSelect }),
     resolveShipping(area, shippingMethodId),
   ]);
   const current = validCart(cart);
   const evaluated = current.appliedCoupon ? await evaluateCoupon(current.appliedCoupon, user.id, current, user.role) : null;
-  return summary(current, user, shipping, evaluated?.discountAmount ?? 0);
+  return summary(current, user, shipping, evaluated?.discountAmount ?? 0, area);
 };
 
 const orderInclude = {
@@ -166,6 +208,12 @@ const mapOrder = (order: OrderRecord, user: CheckoutUser): CheckoutOrderView => 
     discount: item.discountAmount,
     total: item.totalPrice,
   }));
+  const isFree = order.deliveryCharge === 0;
+  const deliveryStatus: "FREE" | "PAID" | "DISABLED" = isFree ? "FREE" : "PAID";
+  const deliveryMessage = isFree
+    ? (order.deliveryArea === "INSIDE_DHAKA" ? "Inside Dhaka (Free Delivery)" : "Outside Dhaka (Free Delivery)")
+    : (order.deliveryArea === "INSIDE_DHAKA" ? "Inside Dhaka Delivery" : "Outside Dhaka Delivery");
+
   return {
     id: order.id,
     orderNumber: order.orderCode,
@@ -182,6 +230,9 @@ const mapOrder = (order: OrderRecord, user: CheckoutUser): CheckoutOrderView => 
     subtotal: order.subtotal,
     discount: order.discountAmount,
     shippingCharge: order.deliveryCharge,
+    deliveryCharge: order.deliveryCharge,
+    deliveryStatus,
+    deliveryMessage,
     grandTotal: order.payableAmount,
     originalTotal: order.subtotal,
     finalTotal: order.payableAmount,
@@ -198,6 +249,9 @@ const mapOrder = (order: OrderRecord, user: CheckoutUser): CheckoutOrderView => 
 };
 
 export const checkout = async (user: CheckoutUser, payload: CheckoutInput, key: string): Promise<CheckoutOrderView> => {
+  if (!payload.deliveryArea || !["INSIDE_DHAKA", "OUTSIDE_DHAKA"].includes(payload.deliveryArea)) {
+    throw new AppError(400, "deliveryArea is required and must be INSIDE_DHAKA or OUTSIDE_DHAKA");
+  }
   await validatePaymentMethodSetting(payload.paymentMethod);
 
   const scoped = `${user.id}:${key}`;
@@ -218,6 +272,10 @@ export const checkout = async (user: CheckoutUser, payload: CheckoutInput, key: 
       : Promise.resolve(null),
   ]);
 
+  if (!shipping.deliveryEnabled) {
+    throw new AppError(400, "Delivery service is currently disabled. Orders cannot be placed at this time.");
+  }
+
   if (payload.couponCode && !explicitCoupon) {
     throw new AppError(404, "Coupon not found");
   }
@@ -231,8 +289,12 @@ export const checkout = async (user: CheckoutUser, payload: CheckoutInput, key: 
           const coupon: CouponRecord | null = explicitCoupon || cart.appliedCoupon;
           const evaluated = coupon ? await evaluateCoupon(coupon, user.id, cart, user.role, db) : null;
           if (coupon && !cart.appliedCoupon) Object.assign(cart, { appliedCoupon: coupon });
-          const totals = summary(cart, user, shipping, evaluated?.discountAmount ?? 0);
-          const estimated = shipping.estimatedDeliveryDays === null ? null : new Date(Date.now() + shipping.estimatedDeliveryDays * 86400000);
+          const freshShipping = await resolveShipping(payload.deliveryArea, payload.shippingMethodId, db);
+          if (!freshShipping.deliveryEnabled) {
+            throw new AppError(400, "Delivery service is currently disabled. Orders cannot be placed at this time.");
+          }
+          const totals = summary(cart, user, freshShipping, evaluated?.discountAmount ?? 0, payload.deliveryArea);
+          const estimated = freshShipping.estimatedDeliveryDays === null ? null : new Date(Date.now() + freshShipping.estimatedDeliveryDays * 86400000);
           const code = await orderNumber(db);
           const created = await db.order.create({
             data: {
