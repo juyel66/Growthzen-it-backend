@@ -242,12 +242,14 @@ const getAppliedDeliveryCharge = async (deliveryArea: DeliveryArea): Promise<num
   const settings = await prismaClient.appSetting.findFirst({
     orderBy: { createdAt: "asc" },
     select: {
+      deliveryEnabled: true,
+      freeDeliveryEnabled: true,
       insideDhakaDeliveryCharge: true,
       outsideDhakaDeliveryCharge: true,
     },
   });
 
-  if (!settings) {
+  if (!settings || !settings.deliveryEnabled || settings.freeDeliveryEnabled) {
     return 0;
   }
 
@@ -612,22 +614,34 @@ export const createOrder = async (payload: CreateOrderInput, currentUser?: Creat
 
         // 2. Shipping charge resolution inside transaction
         let shippingCharge = 0;
-        if (payload.shippingMethodId) {
+        const settings = await tx.appSetting.findFirst({
+          orderBy: { createdAt: "asc" },
+          select: {
+            deliveryEnabled: true,
+            freeDeliveryEnabled: true,
+            insideDhakaDeliveryCharge: true,
+            outsideDhakaDeliveryCharge: true,
+            freeShippingMinOrderAmount: true,
+          },
+        });
+
+        const rawDeliveryEnabled = settings?.deliveryEnabled ?? true;
+        const freeDeliveryEnabled = settings?.freeDeliveryEnabled ?? false;
+        const deliveryEnabled = rawDeliveryEnabled || freeDeliveryEnabled;
+
+        if (!deliveryEnabled) {
+          throw new AppError(400, "Delivery service is currently disabled. Orders cannot be placed at this time.");
+        }
+
+        if (freeDeliveryEnabled) {
+          shippingCharge = 0;
+        } else if (payload.shippingMethodId) {
           const method = await tx.shippingMethod.findFirst({
             where: { id: payload.shippingMethodId, status: "ACTIVE", deletedAt: null },
           });
           if (!method) throw new AppError(400, "Shipping method is not active or does not exist");
           shippingCharge = method.charge;
         } else {
-          const settings = await tx.appSetting.findFirst({
-            orderBy: { createdAt: "asc" },
-            select: {
-              insideDhakaDeliveryCharge: true,
-              outsideDhakaDeliveryCharge: true,
-              freeShippingMinOrderAmount: true,
-            },
-          });
-
           const baseCharge = payload.deliveryArea === "INSIDE_DHAKA"
             ? (settings?.insideDhakaDeliveryCharge ?? 60)
             : (settings?.outsideDhakaDeliveryCharge ?? 120);
@@ -782,8 +796,8 @@ export const createOrder = async (payload: CreateOrderInput, currentUser?: Creat
         items: createdOrder!.items,
         subtotal: createdOrder!.originalSubtotal || createdOrder!.subtotal,
         discountAmount: createdOrder!.totalSavings || createdOrder!.discountAmount,
-        deliveryCharge: createdOrder!.shippingCharge || createdOrder!.deliveryCharge,
-        payableAmount: createdOrder!.grandTotal || createdOrder!.payableAmount,
+        deliveryCharge: createdOrder!.shippingCharge ?? createdOrder!.deliveryCharge ?? 0,
+        payableAmount: createdOrder!.grandTotal ?? createdOrder!.payableAmount,
         couponCode: createdOrder!.couponCode,
         status: createdOrder!.status,
       });
@@ -816,11 +830,11 @@ export const createOrder = async (payload: CreateOrderInput, currentUser?: Creat
           orderNotes: createdOrder!.orderNotes,
           paymentMethod: "COD (Cash On Delivery)",
           items: createdOrder!.items,
-          subtotal: createdOrder!.originalSubtotal || createdOrder!.subtotal,
-          discountAmount: createdOrder!.totalSavings || createdOrder!.discountAmount,
-          deliveryCharge: createdOrder!.shippingCharge || createdOrder!.deliveryCharge,
+          subtotal: createdOrder!.originalSubtotal ?? createdOrder!.subtotal,
+          discountAmount: createdOrder!.totalSavings ?? createdOrder!.discountAmount,
+          deliveryCharge: createdOrder!.shippingCharge ?? createdOrder!.deliveryCharge ?? 0,
           couponCode: createdOrder!.couponCode,
-          payableAmount: createdOrder!.grandTotal || createdOrder!.payableAmount,
+          payableAmount: createdOrder!.grandTotal ?? createdOrder!.payableAmount,
         });
 
         await sendEmail({
