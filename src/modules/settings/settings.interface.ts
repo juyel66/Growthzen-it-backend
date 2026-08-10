@@ -15,10 +15,23 @@ export interface SettingsView {
   language: string;
 
   // Delivery Settings
+  deliveryEnabled: boolean;
+  freeDeliveryEnabled: boolean;
   insideDhakaDeliveryCharge: number;
   outsideDhakaDeliveryCharge: number;
+  insideDhakaCharge?: number;
+  outsideDhakaCharge?: number;
   freeShippingMinOrderAmount: number;
   estimatedDeliveryDays: number;
+  delivery?: {
+    deliveryEnabled: boolean;
+    freeDeliveryEnabled: boolean;
+    insideDhakaDeliveryCharge: number;
+    outsideDhakaDeliveryCharge: number;
+    insideDhakaCharge: number;
+    outsideDhakaCharge: number;
+    estimatedDeliveryDays: number;
+  };
 
   // Payment Settings
   codEnabled: boolean;
@@ -64,8 +77,12 @@ export interface UpdateSettingsInput {
   language?: string;
 
   // Delivery Settings
+  deliveryEnabled?: boolean;
+  freeDeliveryEnabled?: boolean;
   insideDhakaDeliveryCharge?: number;
   outsideDhakaDeliveryCharge?: number;
+  insideDhakaCharge?: number;
+  outsideDhakaCharge?: number;
   freeShippingMinOrderAmount?: number;
   estimatedDeliveryDays?: number;
 
@@ -93,4 +110,23 @@ export interface UpdateSettingsInput {
   customerDiscountPercentage?: number;
   couponCode?: string | null;
   couponActive?: boolean;
+}
+
+export interface DeliverySettingsView {
+  deliveryEnabled: boolean;
+  freeDeliveryEnabled: boolean;
+  insideDhakaCharge: number;
+  outsideDhakaCharge: number;
+  estimatedDeliveryDays: number;
+}
+
+export interface UpdateDeliverySettingsInput {
+  deliveryEnabled?: boolean;
+  freeDeliveryEnabled?: boolean;
+  insideDhakaCharge?: number;
+  outsideDhakaCharge?: number;
+  insideDhakaDeliveryCharge?: number;
+  outsideDhakaDeliveryCharge?: number;
+  estimatedDeliveryDays?: number;
+  freeShippingMinOrderAmount?: number | null;
 }
