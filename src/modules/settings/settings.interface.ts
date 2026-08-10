@@ -117,6 +117,9 @@ export interface DeliverySettingsView {
   freeDeliveryEnabled: boolean;
   insideDhakaCharge: number;
   outsideDhakaCharge: number;
+  insideDhakaDeliveryCharge: number;
+  outsideDhakaDeliveryCharge: number;
+  freeShippingMinOrderAmount: number;
   estimatedDeliveryDays: number;
 }
 
