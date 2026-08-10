@@ -1,7 +1,7 @@
 import type { AppSetting } from "@prisma/client";
 import prismaClient from "../../config/prisma";
 import AppError from "../../utils/AppError";
-import type { SettingsView, UpdateSettingsInput } from "./settings.interface";
+import type { DeliverySettingsView, SettingsView, UpdateDeliverySettingsInput, UpdateSettingsInput } from "./settings.interface";
 
 const mapSettingsView = (settings: AppSetting): SettingsView => ({
   id: settings.id,
@@ -16,10 +16,23 @@ const mapSettingsView = (settings: AppSetting): SettingsView => ({
   currencySymbol: settings.currencySymbol,
   timezone: settings.timezone,
   language: settings.language,
+  deliveryEnabled: settings.deliveryEnabled,
+  freeDeliveryEnabled: settings.freeDeliveryEnabled,
   insideDhakaDeliveryCharge: settings.insideDhakaDeliveryCharge,
   outsideDhakaDeliveryCharge: settings.outsideDhakaDeliveryCharge,
+  insideDhakaCharge: settings.insideDhakaDeliveryCharge,
+  outsideDhakaCharge: settings.outsideDhakaDeliveryCharge,
   freeShippingMinOrderAmount: settings.freeShippingMinOrderAmount,
   estimatedDeliveryDays: settings.estimatedDeliveryDays,
+  delivery: {
+    deliveryEnabled: settings.deliveryEnabled,
+    freeDeliveryEnabled: settings.freeDeliveryEnabled,
+    insideDhakaDeliveryCharge: settings.insideDhakaDeliveryCharge,
+    outsideDhakaDeliveryCharge: settings.outsideDhakaDeliveryCharge,
+    insideDhakaCharge: settings.insideDhakaDeliveryCharge,
+    outsideDhakaCharge: settings.outsideDhakaDeliveryCharge,
+    estimatedDeliveryDays: settings.estimatedDeliveryDays,
+  },
   codEnabled: settings.codEnabled,
   bkashEnabled: settings.bkashEnabled,
   nagadEnabled: settings.nagadEnabled,
@@ -66,6 +79,9 @@ export const updateSettings = async (payload: UpdateSettingsInput): Promise<Sett
     });
   }
 
+  const insideCharge = payload.insideDhakaCharge ?? payload.insideDhakaDeliveryCharge;
+  const outsideCharge = payload.outsideDhakaCharge ?? payload.outsideDhakaDeliveryCharge;
+
   const updatedSettings = await prismaClient.appSetting.update({
     where: { id: existingSettings.id },
     data: {
@@ -80,8 +96,10 @@ export const updateSettings = async (payload: UpdateSettingsInput): Promise<Sett
       ...(payload.currencySymbol !== undefined ? { currencySymbol: payload.currencySymbol } : {}),
       ...(payload.timezone !== undefined ? { timezone: payload.timezone } : {}),
       ...(payload.language !== undefined ? { language: payload.language } : {}),
-      ...(payload.insideDhakaDeliveryCharge !== undefined ? { insideDhakaDeliveryCharge: payload.insideDhakaDeliveryCharge } : {}),
-      ...(payload.outsideDhakaDeliveryCharge !== undefined ? { outsideDhakaDeliveryCharge: payload.outsideDhakaDeliveryCharge } : {}),
+      ...(payload.deliveryEnabled !== undefined ? { deliveryEnabled: payload.deliveryEnabled } : {}),
+      ...(payload.freeDeliveryEnabled !== undefined ? { freeDeliveryEnabled: payload.freeDeliveryEnabled } : {}),
+      ...(insideCharge !== undefined ? { insideDhakaDeliveryCharge: insideCharge } : {}),
+      ...(outsideCharge !== undefined ? { outsideDhakaDeliveryCharge: outsideCharge } : {}),
       ...(payload.freeShippingMinOrderAmount !== undefined ? { freeShippingMinOrderAmount: payload.freeShippingMinOrderAmount } : {}),
       ...(payload.estimatedDeliveryDays !== undefined ? { estimatedDeliveryDays: payload.estimatedDeliveryDays } : {}),
       ...(payload.codEnabled !== undefined ? { codEnabled: payload.codEnabled } : {}),
@@ -106,6 +124,66 @@ export const updateSettings = async (payload: UpdateSettingsInput): Promise<Sett
 
   return mapSettingsView(updatedSettings);
 };
+
+export const getDeliverySettings = async (): Promise<DeliverySettingsView> => {
+  let settings = await prismaClient.appSetting.findFirst({
+    orderBy: { createdAt: "asc" },
+  });
+
+  if (!settings) {
+    settings = await prismaClient.appSetting.create({
+      data: {},
+    });
+  }
+
+  return {
+    deliveryEnabled: settings.deliveryEnabled,
+    freeDeliveryEnabled: settings.freeDeliveryEnabled,
+    insideDhakaCharge: settings.insideDhakaDeliveryCharge,
+    outsideDhakaCharge: settings.outsideDhakaDeliveryCharge,
+    estimatedDeliveryDays: settings.estimatedDeliveryDays,
+  };
+};
+
+export const updateDeliverySettings = async (
+  payload: UpdateDeliverySettingsInput
+): Promise<DeliverySettingsView> => {
+  let existingSettings = await prismaClient.appSetting.findFirst({
+    orderBy: { createdAt: "asc" },
+  });
+
+  if (!existingSettings) {
+    existingSettings = await prismaClient.appSetting.create({
+      data: {},
+    });
+  }
+
+  const insideCharge = payload.insideDhakaCharge ?? payload.insideDhakaDeliveryCharge;
+  const outsideCharge = payload.outsideDhakaCharge ?? payload.outsideDhakaDeliveryCharge;
+  const rawFreeMin = payload.freeShippingMinOrderAmount;
+  const safeFreeMin = typeof rawFreeMin === "number" && !isNaN(rawFreeMin) ? Math.max(0, rawFreeMin) : (rawFreeMin === null ? 0 : undefined);
+
+  const updatedSettings = await prismaClient.appSetting.update({
+    where: { id: existingSettings.id },
+    data: {
+      ...(payload.deliveryEnabled !== undefined ? { deliveryEnabled: payload.deliveryEnabled } : {}),
+      ...(payload.freeDeliveryEnabled !== undefined ? { freeDeliveryEnabled: payload.freeDeliveryEnabled } : {}),
+      ...(insideCharge !== undefined ? { insideDhakaDeliveryCharge: insideCharge } : {}),
+      ...(outsideCharge !== undefined ? { outsideDhakaDeliveryCharge: outsideCharge } : {}),
+      ...(payload.estimatedDeliveryDays !== undefined ? { estimatedDeliveryDays: payload.estimatedDeliveryDays } : {}),
+      ...(safeFreeMin !== undefined ? { freeShippingMinOrderAmount: safeFreeMin } : {}),
+    },
+  });
+
+  return {
+    deliveryEnabled: updatedSettings.deliveryEnabled,
+    freeDeliveryEnabled: updatedSettings.freeDeliveryEnabled,
+    insideDhakaCharge: updatedSettings.insideDhakaDeliveryCharge,
+    outsideDhakaCharge: updatedSettings.outsideDhakaDeliveryCharge,
+    estimatedDeliveryDays: updatedSettings.estimatedDeliveryDays,
+  };
+};
+
 
 export const getCategoryDiscountsSettings = async () => {
   const categories = await prismaClient.category.findMany({
