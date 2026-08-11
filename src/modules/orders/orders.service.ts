@@ -8,7 +8,9 @@ import {
   getAdminOrderCreatedEmail,
   getCustomerOrderReceivedEmail,
   getOrderStatusUpdateEmail,
+  type ReviewTokenEmailItem,
 } from "../../helpers/emailTemplates";
+import { createOrGetReviewTokenForItem } from "../reviews/reviews.token";
 import { createOrGetInvoice } from "../invoices/invoices.service";
 import type {
   CreateOrderInput,
@@ -1140,16 +1142,44 @@ export const updateOrderStatus = async (
     }
   }
 
+  const recipientEmail = updatedOrder.userEmail || updatedOrder.customerEmail || updatedOrder.guestEmail;
+
   // Trigger status update email asynchronously
-  if (statusChanged && updatedOrder.userEmail) {
+  if (statusChanged && recipientEmail) {
     Promise.resolve().then(async () => {
       try {
+        let reviewTokens: ReviewTokenEmailItem[] = [];
+
+        if (updatedOrder.status === "DELIVERED") {
+          const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
+          for (const item of updatedOrder.items) {
+            try {
+              const { rawToken } = await createOrGetReviewTokenForItem({
+                orderId: updatedOrder.id,
+                orderItemId: item.id,
+                productId: item.productId,
+                userId: updatedOrder.userId,
+                customerEmail: recipientEmail,
+              });
+
+              reviewTokens.push({
+                orderItemId: item.id,
+                productCode: item.productCode,
+                reviewUrl: `${clientUrl}/review/verify/${rawToken}`,
+              });
+            } catch (tokenError) {
+              console.error(`Failed to generate review token for item ${item.id}:`, tokenError);
+            }
+          }
+        }
+
         const emailHtml = getOrderStatusUpdateEmail({
           orderCode: updatedOrder.orderCode,
           items: updatedOrder.items,
           payableAmount: updatedOrder.payableAmount,
           status: updatedOrder.status,
           adminNote: payload.adminNote,
+          reviewTokens: reviewTokens.length > 0 ? reviewTokens : undefined,
         });
 
         let subject = "";
@@ -1164,7 +1194,7 @@ export const updateOrderStatus = async (
         }
 
         await sendEmail({
-          to: updatedOrder.userEmail!,
+          to: recipientEmail,
           subject,
           text: `Your order ${updatedOrder.orderCode} status is now ${updatedOrder.status}.`,
           html: emailHtml,
