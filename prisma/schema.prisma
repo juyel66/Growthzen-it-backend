@@ -22,6 +22,7 @@ model User {
   orders           Order[]
   createdProducts  Product[]
   reviews          Review[]
+  reviewTokens     ReviewToken[]
   cart             Cart?
   wishlist         Wishlist?
   couponUsages     CouponUsage[]
@@ -62,7 +63,9 @@ model Product {
   orderItems        OrderItem[]
   createdBy         User?           @relation(fields: [createdById], references: [id])
   categoryRel       Category?       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  reviews           Review[]
+  reviews           ProductReview[]
+  legacyReviews     Review[]
+  reviewTokens      ReviewToken[]
   cartItems         CartItem[]
   wishlistItems     WishlistItem[]
   couponProducts    CouponProduct[]
@@ -343,6 +346,7 @@ model Order {
   user                  User?                @relation(fields: [userId], references: [id])
   items                 OrderItem[]
   reviews               Review[]
+  reviewTokens          ReviewToken[]
   payment               Payment?
   statusHistory         OrderStatusHistory[]
   shippingMethod        ShippingMethod?      @relation(fields: [shippingMethodId], references: [id], onDelete: SetNull)
@@ -444,7 +448,7 @@ model Payment {
 }
 
 model OrderItem {
-  id             String  @id @default(cuid())
+  id             String       @id @default(cuid())
   orderId        String
   productId      String
   productCode    String
@@ -452,31 +456,79 @@ model OrderItem {
   size           String?
   unitPrice      Float
   baseUnitPrice  Float?
-  purchaseCost   Float   @default(0)
-  discountAmount Float   @default(0)
+  purchaseCost   Float        @default(0)
+  discountAmount Float        @default(0)
   totalPrice     Float
-  order          Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product        Product @relation(fields: [productId], references: [id])
+  order          Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product        Product      @relation(fields: [productId], references: [id])
   review         Review?
+  reviewToken    ReviewToken?
 }
 
 model Review {
-  id          String       @id @default(cuid())
-  productId   String
-  orderId     String
-  orderItemId String       @unique
-  userId      String
-  rating      Int
-  comment     String?
-  images      String[]     @default([])
-  status      ReviewStatus @default(APPROVED)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id                 String       @id @default(cuid())
+  productId          String?
+  orderId            String?
+  orderItemId        String?      @unique
+  userId             String?
+  reviewerName       String?
+  reviewerEmail      String?
+  rating             Int
+  title              String?
+  comment            String?
+  images             String[]     @default([])
+  source             ReviewSource @default(PUBLIC)
+  status             ReviewStatus @default(PENDING)
+  isVerifiedPurchase Boolean      @default(false)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
-  product   Product   @relation(fields: [productId], references: [id])
-  order     Order     @relation(fields: [orderId], references: [id])
-  orderItem OrderItem @relation(fields: [orderItemId], references: [id])
-  user      User      @relation(fields: [userId], references: [id])
+  product   Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  products  ProductReview[]
+  order     Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderItem OrderItem?      @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  user      User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([productId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([source])
+}
+
+model ProductReview {
+  productId String
+  reviewId  String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  review    Review  @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([productId, reviewId])
+  @@index([reviewId])
+  @@index([productId])
+}
+
+model ReviewToken {
+  id            String    @id @default(cuid())
+  tokenHash     String    @unique
+  orderId       String
+  orderItemId   String    @unique
+  productId     String
+  userId        String?
+  customerEmail String?
+  expiresAt     DateTime
+  isUsed        Boolean   @default(false)
+  usedAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tokenHash])
+  @@index([orderId])
+  @@index([expiresAt])
 }
 
 enum Role {
@@ -551,9 +603,16 @@ enum DeliveryArea {
   OUTSIDE_DHAKA
 }
 
+enum ReviewSource {
+  VERIFIED_PURCHASE
+  PUBLIC
+}
+
 enum ReviewStatus {
-  APPROVED
+  PENDING
+  PUBLISHED
   HIDDEN
+  APPROVED
 }
 
 enum CategoryStatus {
