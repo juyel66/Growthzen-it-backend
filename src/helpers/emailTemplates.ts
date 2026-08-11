@@ -55,12 +55,20 @@ export interface CustomerEmailData {
   estimatedDelivery?: string | null;
 }
 
+export interface ReviewTokenEmailItem {
+  orderItemId?: string;
+  productCode: string;
+  productName?: string;
+  reviewUrl: string;
+}
+
 export interface StatusEmailData {
   orderCode: string;
   items: OrderEmailItem[];
   payableAmount: number;
   status: string;
   adminNote?: string | null;
+  reviewTokens?: ReviewTokenEmailItem[];
 }
 
 // Helper to format currency
@@ -397,6 +405,32 @@ export const getOrderStatusUpdateEmail = (data: StatusEmailData): string => {
       statusBg = "#f3f4f6";
   }
 
+  const reviewSectionHtml =
+    data.status === "DELIVERED" && data.reviewTokens && data.reviewTokens.length > 0
+      ? `
+      <div style="margin-top: 24px; padding: 24px 20px; background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; text-align: center;">
+        <h3 style="margin: 0 0 8px 0; font-size: 18px; font-weight: 700; color: #166534;">Rate Your Purchase</h3>
+        <p style="margin: 0 0 20px 0; font-size: 14px; color: #15803d; line-height: 1.5;">
+          We hope you love your products! Click below to submit your rating and review:
+        </p>
+        <div style="display: flex; flex-direction: column; gap: 14px; align-items: center;">
+          ${data.reviewTokens
+            .map(
+              (rt) => `
+            <div style="margin-bottom: 12px; width: 100%; max-width: 400px; background: #ffffff; padding: 14px; border-radius: 8px; border: 1px solid #dcfce7; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+              <span style="font-size: 14px; font-weight: 700; color: #0f172a; display: block; margin-bottom: 8px;">Product Code: ${rt.productCode}${rt.productName ? ` (${rt.productName})` : ""}</span>
+              <a href="${rt.reviewUrl}" target="_blank" style="display: inline-block; background-color: #16a34a; color: #ffffff; padding: 10px 22px; border-radius: 8px; font-size: 14px; font-weight: 700; text-decoration: none; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                [ ⭐ Rate This Product ]
+              </a>
+            </div>
+          `
+            )
+            .join("")}
+        </div>
+      </div>
+    `
+      : "";
+
   const contentHtml = `
     <h2 style="margin-top: 0; margin-bottom: 12px; font-size: 20px; font-weight: 700; color: #1e1b4b; text-align: center;">${statusTitle}</h2>
     
@@ -425,6 +459,8 @@ export const getOrderStatusUpdateEmail = (data: StatusEmailData): string => {
     <!-- Products -->
     <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 16px; font-weight: 700; color: #0f172a;">Order Details</h3>
     ${renderItemsTable(data.items)}
+
+    ${reviewSectionHtml}
 
     <!-- Summary -->
     <div style="width: 250px; margin-left: auto; margin-bottom: 24px;">
