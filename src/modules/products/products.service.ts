@@ -19,15 +19,20 @@ const productInclude = {
   createdBy: { select: { name: true, email: true } },
   categoryRel: { select: { id: true, name: true, slug: true, discountPercentage: true, discountEnabled: true } },
   reviews: {
-    where: { status: "APPROVED" as const },
+    where: { review: { status: { in: ["PUBLISHED", "APPROVED"] as const } } },
     orderBy: { createdAt: "desc" as const },
     select: {
-      id: true,
-      rating: true,
-      comment: true,
-      images: true,
-      createdAt: true,
-      user: { select: { name: true } },
+      review: {
+        select: {
+          id: true,
+          reviewerName: true,
+          rating: true,
+          comment: true,
+          images: true,
+          createdAt: true,
+          user: { select: { name: true } },
+        },
+      },
     },
   },
 } satisfies Prisma.ProductInclude;
@@ -80,8 +85,9 @@ const buildUniqueSlug = async (title: string, excludeProductId?: string): Promis
 const mapProduct = (product: ProductRecord, viewerRole?: Role): ProductView => {
   const breakdown: Record<1 | 2 | 3 | 4 | 5, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
   let ratingTotal = 0;
-  product.reviews.forEach((review) => {
-    if (review.rating >= 1 && review.rating <= 5) {
+  product.reviews.forEach((assoc) => {
+    const review = assoc.review;
+    if (review && review.rating >= 1 && review.rating <= 5) {
       const rating = review.rating as 1 | 2 | 3 | 4 | 5;
       breakdown[rating] += 1;
       ratingTotal += rating;
@@ -97,15 +103,17 @@ const mapProduct = (product: ProductRecord, viewerRole?: Role): ProductView => {
   const price = calculateFinalPrice(product, viewerRole);
 
   const rawThumbnail = toRelativePath(product.thumbnailImage) || (Array.isArray(product.productImages) && product.productImages[0] ? toRelativePath(product.productImages[0]) : "");
-  let thumbnailImage = formatPublicUrl(rawThumbnail);
-  if (!thumbnailImage) {
-    thumbnailImage = `${BASE_URL}/uploads/products/thumbnails/default-product.webp`;
-  }
+  const thumbnailImage = formatPublicUrl(rawThumbnail);
 
-  const productImages = formatPublicUrlArray(Array.isArray(product.productImages) ? product.productImages : []);
-  const productVideos = formatPublicUrlArray(Array.isArray(product.productVideos) ? product.productVideos : []);
+  const productImages = formatPublicUrlArray(
+    (product.productImages ?? []).map(toRelativePath)
+  );
 
-  logImageFlow(`mapProduct [${product.id}]`, {
+  const productVideos = formatPublicUrlArray(
+    (product.productVideos ?? []).map(toRelativePath)
+  );
+
+  logImageFlow("mapProduct Output", {
     dbThumbnail: product.thumbnailImage,
     dbProductImages: product.productImages,
     dbProductVideos: product.productVideos,
@@ -194,14 +202,18 @@ const mapProduct = (product: ProductRecord, viewerRole?: Role): ProductView => {
     averageRating: product.reviews.length ? Number((ratingTotal / product.reviews.length).toFixed(2)) : 0,
     reviewCount: product.reviews.length,
     ratingBreakdown: breakdown,
-    latestReviews: product.reviews.slice(0, 5).map((review) => ({
-      id: review.id,
-      reviewerName: review.user.name,
-      rating: review.rating,
-      comment: review.comment,
-      images: formatPublicUrlArray(review.images ?? []),
-      createdAt: review.createdAt,
-    })),
+    latestReviews: product.reviews
+      .map((assoc) => assoc.review)
+      .filter(Boolean)
+      .slice(0, 5)
+      .map((review) => ({
+        id: review.id,
+        reviewerName: review.reviewerName || review.user?.name || "Customer",
+        rating: review.rating,
+        comment: review.comment,
+        images: formatPublicUrlArray(review.images ?? []),
+        createdAt: review.createdAt,
+      })),
     createdAt: product.createdAt,
     updatedAt: product.updatedAt,
     ...(isAdmin ? {
