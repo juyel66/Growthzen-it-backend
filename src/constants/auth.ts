@@ -17,3 +17,4 @@ export const isProtectedSuperAdminEmail = (email: string | null | undefined): bo
   const normalized = email.trim().toLowerCase();
   return PROTECTED_SUPER_ADMIN_EMAILS.some((e) => e.toLowerCase() === normalized);
 };
+
